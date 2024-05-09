@@ -1,0 +1,20 @@
+side_length: 10
+coordinates:
+  STG:
+    L:
+      x: 42
+      y: 33
+      z: 15
+    R:
+      x: 10
+      y: 35
+      z: 19
+  FFA:
+    L:
+      x: 37
+      y: 12
+      z: 15
+    R:
+      x: 16
+      y: 13
+      z: 15
