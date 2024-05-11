@@ -1,19 +1,29 @@
 """A module for similarity methods.
 
-This module includes 2 similarity methods, `Cosine Similarity` (CS) and 
-`Pearson Correlation Coefficient` (PCC).
+This module includes serval similarity methods, which can be used to
+get the similarity between two brain activity patterns. These methods
+are voxel-based, meaning that they compare the similarity between two
+brain activity patterns by initially flattening them into 1D arrays.
 """
 
 from functools import wraps
 from typing import Callable
 
 import numpy as np
-from scipy.spatial.distance import cosine as cosine_distance
-from scipy.stats import pearsonr
+import scipy.spatial.distance as distance
+import scipy.stats as stats
 
 __all__ = [
-    "cs",
-    "pcc",
+    "chebyshev",
+    "cityblock",
+    "cosine",
+    "euclidean",
+    "minkowski",
+    "minkowski_5",
+    "minkowski_10",
+    "minkowski_50",
+    "pearson",
+    "spearman",
 ]
 
 
@@ -37,10 +47,47 @@ def _voxel_based_similarity(func: Callable):
 
 
 @_voxel_based_similarity
-def cs(x: np.ndarray, y: np.ndarray) -> float:
-    return 1 - cosine_distance(x, y)
+def chebyshev(x: np.ndarray, y: np.ndarray) -> float:
+    return distance.chebyshev(x, y)
 
 
 @_voxel_based_similarity
-def pcc(x: np.ndarray, y: np.ndarray) -> float:
-    return pearsonr(x, y)[0]
+def cityblock(x: np.ndarray, y: np.ndarray) -> float:
+    return distance.cityblock(x, y)
+
+
+@_voxel_based_similarity
+def cosine(x: np.ndarray, y: np.ndarray) -> float:
+    return distance.cosine(x, y)
+
+
+@_voxel_based_similarity
+def euclidean(x: np.ndarray, y: np.ndarray) -> float:
+    return distance.euclidean(x, y)
+
+
+@_voxel_based_similarity
+def minkowski(x: np.ndarray, y: np.ndarray, p: float) -> float:
+    return distance.minkowski(x, y, p)
+
+
+def minkowski_5(x: np.ndarray, y: np.ndarray) -> float:
+    return minkowski(x=x, y=y, p=5)
+
+
+def minkowski_10(x: np.ndarray, y: np.ndarray) -> float:
+    return minkowski(x=x, y=y, p=10)
+
+
+def minkowski_50(x: np.ndarray, y: np.ndarray) -> float:
+    return minkowski(x=x, y=y, p=50)
+
+
+@_voxel_based_similarity
+def pearson(x: np.ndarray, y: np.ndarray) -> float:
+    return stats.pearsonr(x, y)[0]
+
+
+@_voxel_based_similarity
+def spearman(x: np.ndarray, y: np.ndarray) -> float:
+    return stats.spearmanr(x, y)
