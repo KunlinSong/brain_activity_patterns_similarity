@@ -37,6 +37,7 @@ _STRUCTURE_FEAT = "structure"
 _HEMISPHERE_FEAT = "hemisphere"
 _DATA_TYPE_FEAT = "data type"
 _STIMULATION_FEAT = "stimulation"
+_SPECIFIC_FEAT = "specific"
 _SUBJECT_FEAT = "subject"
 _ORIGINAL_IMG_FEAT = "original"
 _SIMILARITY_FEAT = "similarity"
@@ -122,6 +123,14 @@ def load_brain_images(
     return brain_img_df
 
 
+def get_specific_stimulation(structure: str) -> str:
+    return _SPECIFIC_DICT[structure]
+
+
+def is_specific(stimulation: str, structure: str) -> int:
+    return int(get_specific_stimulation(structure=structure) == stimulation)
+
+
 def get_roi_img_df(
     brain_img_df: pd.DataFrame, rois_df: pd.DataFrame
 ) -> pd.DataFrame:
@@ -147,6 +156,12 @@ def get_roi_img_df(
             roi_dataset[_HEMISPHERE_FEAT].append(roi[_HEMISPHERE_FEAT])
             roi_dataset[_DATA_TYPE_FEAT].append(_DATA_TYPE_REAL)
             roi_dataset[_STIMULATION_FEAT].append(brain_img[_STIMULATION_FEAT])
+            roi_dataset[_SPECIFIC_FEAT].append(
+                is_specific(
+                    stimulation=brain_img[_STIMULATION_FEAT],
+                    structure=roi[_STRUCTURE_FEAT],
+                )
+            )
             roi_dataset[_SUBJECT_FEAT].append(brain_img[_SUBJECT_FEAT])
             roi_dataset[_ORIGINAL_IMG_FEAT].append(roi_img)
     roi_dataset_df = pd.DataFrame(roi_dataset)
@@ -226,6 +241,7 @@ def _get_similarity_to(
             _DATA_TYPE_FEAT,
             _STIMULATION_FEAT,
             _SUBJECT_FEAT,
+            _SPECIFIC_FEAT,
             _SIMILARITY_FEAT,
         ]
     ].copy()
@@ -274,10 +290,6 @@ def get_similarity_mat(
     return similarity_mat
 
 
-def get_specific_stimulation(structure: str) -> str:
-    return _SPECIFIC_DICT[structure]
-
-
 SimilarityVals = namedtuple(
     "SimilarityVals", ["specific", "non_specific"], defaults=[[], []]
 )
@@ -312,16 +324,13 @@ def get_average_similarity(
         similarity_name=similarity_name,
         process_name=process_name,
     )
-    specific_stimulation = get_specific_stimulation(
-        structure=img_row[_STRUCTURE_FEAT]
-    )
     similarity_df: pd.DataFrame = img_row[similarity_feat]
     similarity_df = similarity_df.drop(img_idx, axis=0)
     specific_similarity_df = similarity_df[
-        similarity_df[_STIMULATION_FEAT] == specific_stimulation
+        similarity_df[_SPECIFIC_FEAT] == 1
     ].copy()
     non_specific_similarity_df = similarity_df[
-        similarity_df[_STIMULATION_FEAT] != specific_stimulation
+        similarity_df[_SPECIFIC_FEAT] == 0
     ].copy()
     specific_avg_similarity = compute_avg(
         similarity_df=specific_similarity_df,
