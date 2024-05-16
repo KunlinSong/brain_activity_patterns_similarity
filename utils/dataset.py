@@ -10,7 +10,7 @@ column in the database.
 import re
 from collections import defaultdict, namedtuple
 from functools import partial
-from itertools import combinations
+from itertools import combinations, product
 from pathlib import Path
 from typing import Callable
 
@@ -41,6 +41,9 @@ _SPECIFIC_FEAT = "specific"
 _SUBJECT_FEAT = "subject"
 _ORIGINAL_IMG_FEAT = "original"
 _SIMILARITY_FEAT = "similarity"
+_INDEX_FEAT = "subject idx"
+_SPECIFIC_SIMILARITY_FEAT = "specific similarity"
+_NON_SPECIFIC_SIMILARITY_FEAT = "non-specific similarity"
 
 _DATA_TYPE_REAL = "real"
 _DATA_TYPE_RANDOM = "random"
@@ -345,3 +348,42 @@ def get_average_similarity(
         specific=specific_avg_similarity,
         non_specific=non_specific_avg_similarity,
     )
+
+
+def get_average_similarity_dataset(
+    img_df: pd.DataFrame,
+    similarity_and_process_names: list[tuple[str, str | None]],
+    n_subjects: int = 0,
+) -> pd.DataFrame:
+    avg_similarity_dataset = defaultdict(list)
+    for (img_idx, img_row), (similarity_name, process_name) in product(
+        img_df.iterrows(), similarity_and_process_names
+    ):
+        specific_vals, non_specific_vals = get_average_similarity(
+            img_idx=img_idx,
+            img_row=img_row,
+            similarity_name=similarity_name,
+            process_name=process_name,
+            n_subjects=n_subjects,
+        )
+        for specific_v, non_specific_v in product(
+            specific_vals, non_specific_vals
+        ):
+            avg_similarity_dataset[_INDEX_FEAT].append(img_idx)
+            for feat in [
+                _DATA_TYPE_FEAT,
+                _STIMULATION_FEAT,
+                _SUBJECT_FEAT,
+                _SPECIFIC_FEAT,
+                _SIMILARITY_FEAT,
+            ]:
+                avg_similarity_dataset[feat].append(img_row[feat])
+
+            avg_similarity_dataset[_SIMILARITY_FEAT] = _get_similarity_feat(
+                similarity_name=similarity_name, process_name=process_name
+            )
+            avg_similarity_dataset[_SPECIFIC_SIMILARITY_FEAT] = specific_v
+            avg_similarity_dataset[_NON_SPECIFIC_SIMILARITY_FEAT] = (
+                non_specific_v
+            )
+    return pd.DataFrame(avg_similarity_dataset)
