@@ -324,8 +324,11 @@ def get_average_similarity(
         similarity_name=similarity_name,
         process_name=process_name,
     )
-    similarity_df: pd.DataFrame = img_row[similarity_feat]
+    similarity_df: pd.DataFrame = img_row[similarity_feat].copy()
     similarity_df = similarity_df.drop(img_idx, axis=0)
+    similarity_df = similarity_df[
+        similarity_df[_DATA_TYPE_FEAT] == _DATA_TYPE_REAL
+    ]
     specific_similarity_df = similarity_df[
         similarity_df[_SPECIFIC_FEAT] == 1
     ].copy()
