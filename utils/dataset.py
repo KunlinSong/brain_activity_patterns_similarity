@@ -12,68 +12,68 @@ from collections import defaultdict, namedtuple
 from functools import partial
 from itertools import combinations, product
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import nibabel
 import numpy as np
 import pandas as pd
 import yaml
 
-_SIDE_LENGTH_CONF = "side_length"
-_COORDINATES_CONF = "coordinates"
-_X_CONF = "x"
-_Y_CONF = "y"
-_Z_CONF = "z"
-_SPECIFIC_DICT = {
-    "STG": "auditory stimulation",
-    "FFA": "visual stimulation",
-}
+from .config import get_config
 
-_AXIS_MIN_FEAT = lambda axis: f"{axis} min"
-_AXIS_MAX_FEAT = lambda axis: f"{axis} max"
-
-_REGION_FEAT = "region"
-_STRUCTURE_FEAT = "structure"
-_HEMISPHERE_FEAT = "hemisphere"
-_DATA_TYPE_FEAT = "data type"
-_STIMULATION_FEAT = "stimulation"
-_SPECIFIC_FEAT = "specific"
-_SUBJECT_FEAT = "subject"
-_ORIGINAL_IMG_FEAT = "original"
-_SIMILARITY_FEAT = "similarity"
-_INDEX_FEAT = "subject idx"
-_SPECIFIC_SIMILARITY_FEAT = "specific similarity"
-_NON_SPECIFIC_SIMILARITY_FEAT = "non-specific similarity"
-
-_DATA_TYPE_REAL = "real"
-_DATA_TYPE_RANDOM = "random"
+_CONFIG = get_config()
 
 
-def load_rois_config(path: str) -> pd.DataFrame:
-    rois_config = defaultdict(list)
+def _get_axis_min_feat(axis: Any) -> str:
+    return f"{axis} min"
+
+
+def _get_axis_max_feat(axis: Any) -> str:
+    return f"{axis} max"
+
+
+def get_rois_df(path: str) -> pd.DataFrame:
+    rois_df_dict = defaultdict(list)
     with open(path, "r") as f:
-        config: dict = yaml.safe_load(f)
-    len_side = config[_SIDE_LENGTH_CONF]
+        roi_config: dict = yaml.safe_load(f)
+    len_side = roi_config[_CONFIG.NAMES.ROI_CONFIG.SIDE_LENGTH]
     side_mid_front = len_side // 2
     side_mid_back = len_side - side_mid_front
     get_min = lambda x: x - side_mid_front
     get_max = lambda x: x + side_mid_back
-    coords: dict = config[_COORDINATES_CONF]
+    coords: dict = roi_config[_CONFIG.NAMES.ROI_CONFIG.COORDINATES]
     for structure in coords.keys():
-        structure_coords: dict = config[_COORDINATES_CONF][structure]
-        for hemisphere in structure_coords.keys():
+        structure_coords: dict = roi_config[
+            _CONFIG.NAMES.ROI_CONFIG.COORDINATES
+        ][structure]
+        for hemisphere in [
+            _CONFIG.NAMES.ROI_CONFIG.LEFT_HEMISPHERE,
+            _CONFIG.NAMES.ROI_CONFIG.RIGHT_HEMISPHERE,
+        ]:
             region_coord: dict = structure_coords[hemisphere]
 
-            rois_config[_REGION_FEAT].append(f"{structure} {hemisphere}")
-            rois_config[_STRUCTURE_FEAT].append(structure)
-            rois_config[_HEMISPHERE_FEAT].append(hemisphere)
-            for axis in [_X_CONF, _Y_CONF, _Z_CONF]:
+            rois_df_dict[_CONFIG.DATASET_FEATURES.REGION].append(
+                f"{structure} {hemisphere}"
+            )
+            rois_df_dict[_CONFIG.DATASET_FEATURES.STRUCTURE].append(structure)
+            rois_df_dict[_CONFIG.DATASET_FEATURES.HEMISPHERE].append(
+                hemisphere
+            )
+            for axis in [
+                _CONFIG.NAMES.ROI_CONFIG.X,
+                _CONFIG.NAMES.ROI_CONFIG.Y,
+                _CONFIG.NAMES.ROI_CONFIG.Z,
+            ]:
                 coord_axis = region_coord[axis]
-                rois_config[axis].append(coord_axis)
-                rois_config[_AXIS_MIN_FEAT(axis)].append(get_min(coord_axis))
-                rois_config[_AXIS_MAX_FEAT(axis)].append(get_max(coord_axis))
-    rois_df = pd.DataFrame(rois_config)
-    rois_df = rois_df.sort_values(by=[_REGION_FEAT])
+                rois_df_dict[axis].append(coord_axis)
+                rois_df_dict[_get_axis_min_feat(axis)].append(
+                    get_min(coord_axis)
+                )
+                rois_df_dict[_get_axis_max_feat(axis)].append(
+                    get_max(coord_axis)
+                )
+    rois_df = pd.DataFrame(rois_df_dict)
+    rois_df = rois_df.sort_values(by=[_CONFIG.DATASET_FEATURES.REGION])
     rois_df = rois_df.reset_index(drop=True)
     return rois_df
 
@@ -113,21 +113,28 @@ def load_brain_images(
                 continue
             img = np.array(nibabel.load(path).get_fdata())
 
-            brain_images[_DATA_TYPE_FEAT].append(_DATA_TYPE_REAL)
-            brain_images[_STIMULATION_FEAT].append(stimulation.name)
-            brain_images[_SUBJECT_FEAT].append(subject.name)
-            brain_images[_ORIGINAL_IMG_FEAT].append(img)
+            brain_images[_CONFIG.DATASET_FEATURES.DATA_TYPE].append(
+                _CONFIG.NAMES.DATA_TYPE.REAL
+            )
+            brain_images[_CONFIG.DATASET_FEATURES.STIMULATION].append(
+                stimulation.name
+            )
+            brain_images[_CONFIG.DATASET_FEATURES.SUBJECT].append(subject.name)
+            brain_images[_CONFIG.NAMES.PROCESS.ORIGINAL].append(img)
 
     brain_img_df = pd.DataFrame(brain_images)
     brain_img_df = brain_img_df.sort_values(
-        by=[_STIMULATION_FEAT, _SUBJECT_FEAT]
+        by=[
+            _CONFIG.DATASET_FEATURES.STIMULATION,
+            _CONFIG.DATASET_FEATURES.SUBJECT,
+        ]
     )
     brain_img_df = brain_img_df.reset_index(drop=True)
     return brain_img_df
 
 
 def get_specific_stimulation(structure: str) -> str:
-    return _SPECIFIC_DICT[structure]
+    return _CONFIG.REGION_SPECIFIC_STIMULATIONS[structure]
 
 
 def is_specific(stimulation: str, structure: str) -> int:
@@ -140,36 +147,55 @@ def get_roi_img_df(
     roi_dataset = defaultdict(list)
     for _, roi in rois_df.iterrows():
         x_min, x_max = (
-            roi[_AXIS_MIN_FEAT(_X_CONF)],
-            roi[_AXIS_MAX_FEAT(_X_CONF)],
+            roi[_get_axis_min_feat(_CONFIG.NAMES.ROI_CONFIG.X)],
+            roi[_get_axis_max_feat(_CONFIG.NAMES.ROI_CONFIG.X)],
         )
         y_min, y_max = (
-            roi[_AXIS_MIN_FEAT(_Y_CONF)],
-            roi[_AXIS_MAX_FEAT(_Y_CONF)],
+            roi[_get_axis_min_feat(_CONFIG.NAMES.ROI_CONFIG.Y)],
+            roi[_get_axis_max_feat(_CONFIG.NAMES.ROI_CONFIG.Y)],
         )
         z_min, z_max = (
-            roi[_AXIS_MIN_FEAT(_Z_CONF)],
-            roi[_AXIS_MAX_FEAT(_Z_CONF)],
+            roi[_get_axis_min_feat(_CONFIG.NAMES.ROI_CONFIG.Z)],
+            roi[_get_axis_max_feat(_CONFIG.NAMES.ROI_CONFIG.Z)],
         )
         for _, brain_img in brain_img_df.iterrows():
-            img = brain_img[_ORIGINAL_IMG_FEAT]
+            img = brain_img[_CONFIG.NAMES.PROCESS.ORIGINAL]
             roi_img = img[x_min:x_max, y_min:y_max, z_min:z_max]
-            roi_dataset[_REGION_FEAT].append(roi[_REGION_FEAT])
-            roi_dataset[_STRUCTURE_FEAT].append(roi[_STRUCTURE_FEAT])
-            roi_dataset[_HEMISPHERE_FEAT].append(roi[_HEMISPHERE_FEAT])
-            roi_dataset[_DATA_TYPE_FEAT].append(_DATA_TYPE_REAL)
-            roi_dataset[_STIMULATION_FEAT].append(brain_img[_STIMULATION_FEAT])
-            roi_dataset[_SPECIFIC_FEAT].append(
+            roi_dataset[_CONFIG.DATASET_FEATURES.REGION].append(
+                roi[_CONFIG.DATASET_FEATURES.REGION]
+            )
+            roi_dataset[_CONFIG.DATASET_FEATURES.STRUCTURE].append(
+                roi[_CONFIG.DATASET_FEATURES.STRUCTURE]
+            )
+            roi_dataset[_CONFIG.DATASET_FEATURES.HEMISPHERE].append(
+                roi[_CONFIG.DATASET_FEATURES.HEMISPHERE]
+            )
+            roi_dataset[_CONFIG.DATASET_FEATURES.DATA_TYPE].append(
+                _CONFIG.NAMES.DATA_TYPE.REAL
+            )
+            roi_dataset[_CONFIG.DATASET_FEATURES.STIMULATION].append(
+                brain_img[_CONFIG.DATASET_FEATURES.STIMULATION]
+            )
+            roi_dataset[_CONFIG.DATASET_FEATURES.IS_SPECIFIC].append(
                 is_specific(
-                    stimulation=brain_img[_STIMULATION_FEAT],
-                    structure=roi[_STRUCTURE_FEAT],
+                    stimulation=brain_img[
+                        _CONFIG.DATASET_FEATURES.STIMULATION
+                    ],
+                    structure=roi[_CONFIG.DATASET_FEATURES.STRUCTURE],
                 )
             )
-            roi_dataset[_SUBJECT_FEAT].append(brain_img[_SUBJECT_FEAT])
-            roi_dataset[_ORIGINAL_IMG_FEAT].append(roi_img)
+            roi_dataset[_CONFIG.DATASET_FEATURES.SUBJECT].append(
+                brain_img[_CONFIG.DATASET_FEATURES.SUBJECT]
+            )
+            roi_dataset[_CONFIG.NAMES.PROCESS.ORIGINAL].append(roi_img)
     roi_dataset_df = pd.DataFrame(roi_dataset)
+    roi_dataset_df[_CONFIG.DATASET_FEATURES.SIMILARITY] = None
     roi_dataset_df = roi_dataset_df.sort_values(
-        by=[_REGION_FEAT, _STIMULATION_FEAT, _SUBJECT_FEAT]
+        by=[
+            _CONFIG.DATASET_FEATURES.REGION,
+            _CONFIG.DATASET_FEATURES.STIMULATION,
+            _CONFIG.DATASET_FEATURES.SUBJECT,
+        ]
     )
     roi_dataset_df = roi_dataset_df.reset_index(drop=True)
     return roi_dataset_df
@@ -190,17 +216,24 @@ def get_random_img_df(
 ) -> pd.DataFrame:
     rng = np.random.default_rng(random_seed)
     random_img_df = img_df.copy()
-    random_img_df[_ORIGINAL_IMG_FEAT] = random_img_df[
-        _ORIGINAL_IMG_FEAT
+    random_img_df[_CONFIG.NAMES.PROCESS.ORIGINAL] = random_img_df[
+        _CONFIG.NAMES.PROCESS.ORIGINAL
     ].apply(lambda img: _randomize_img(img, rng))
-    random_img_df[_DATA_TYPE_FEAT] = _DATA_TYPE_RANDOM
+    random_img_df[_CONFIG.DATASET_FEATURES.DATA_TYPE] = (
+        _CONFIG.NAMES.DATA_TYPE.RANDOM
+    )
     return random_img_df
 
 
 def concat_img_dfs(img_dfs: list[pd.DataFrame]) -> pd.DataFrame:
     img_df = pd.concat(img_dfs, ignore_index=True)
     img_df = img_df.sort_values(
-        by=[_REGION_FEAT, _DATA_TYPE_FEAT, _STIMULATION_FEAT, _SUBJECT_FEAT]
+        by=[
+            _CONFIG.DATASET_FEATURES.REGION,
+            _CONFIG.DATASET_FEATURES.DATA_TYPE,
+            _CONFIG.DATASET_FEATURES.STIMULATION,
+            _CONFIG.DATASET_FEATURES.SUBJECT,
+        ]
     )
     img_df = img_df.reset_index(drop=True)
     return img_df
@@ -210,44 +243,52 @@ def process_original(
     img_df: pd.DataFrame, process_name: str, process_func: Callable
 ) -> pd.DataFrame:
     img_df = img_df.copy()
-    img_df[process_name] = img_df[_ORIGINAL_IMG_FEAT].apply(
+    img_df[process_name] = img_df[_CONFIG.NAMES.PROCESS.ORIGINAL].apply(
         lambda img: process_func(img)
     )
     return img_df
 
 
-def _get_process_feat(process_name: str | None = None) -> str:
-    return _ORIGINAL_IMG_FEAT if process_name is None else process_name
+def _get_process_name(process_name: str | None = None) -> str:
+    return (
+        _CONFIG.NAMES.PROCESS.ORIGINAL
+        if process_name is None
+        else process_name
+    )
 
 
-def _get_similarity_feat(
-    similarity_name: str, process_name: str | None
-) -> str:
-    return f"{_get_process_feat(process_name)} {similarity_name}"
-
-
-def _get_similarity_to(
+def _get_similarity_sub_df(
     img_row: pd.Series,
     img_df: pd.DataFrame,
     similarity_func: Callable,
+    similarity_name: str,
     process_name: str | None = None,
 ):
-    process_feat = _get_process_feat(process_name)
+    process_name = _get_process_name(process_name)
     img_df = img_df.copy()
-    img_df = img_df[img_df[_REGION_FEAT] == img_row[_REGION_FEAT]]
+    img_df = img_df[
+        img_df[_CONFIG.DATASET_FEATURES.REGION]
+        == img_row[_CONFIG.DATASET_FEATURES.REGION]
+    ]
 
-    img_df[_SIMILARITY_FEAT] = img_df[process_feat].apply(
-        lambda process_img: similarity_func(img_row[process_feat], process_img)
-    )
-    similarity_df = img_df[
+    similarity_df = img_df.copy()
+    similarity_df = similarity_df[
         [
-            _DATA_TYPE_FEAT,
-            _STIMULATION_FEAT,
-            _SUBJECT_FEAT,
-            _SPECIFIC_FEAT,
-            _SIMILARITY_FEAT,
+            _CONFIG.DATASET_FEATURES.DATA_TYPE,
+            _CONFIG.DATASET_FEATURES.STIMULATION,
+            _CONFIG.DATASET_FEATURES.SUBJECT,
+            _CONFIG.DATASET_FEATURES.IS_SPECIFIC,
+            _CONFIG.DATASET_FEATURES.SIMILARITY,
         ]
     ].copy()
+    similarity_df[_CONFIG.DATASET_FEATURES.SUBJECT_ID] = img_df.index.to_list()
+    similarity_df[_CONFIG.DATASET_FEATURES.PROCESS_METHOD] = process_name
+    similarity_df[_CONFIG.DATASET_FEATURES.SIMILARITY_METHOD] = similarity_name
+    similarity_df[_CONFIG.DATASET_FEATURES.SIMILARITY] = img_df[
+        process_name
+    ].apply(
+        lambda process_img: similarity_func(img_row[process_name], process_img)
+    )
     return similarity_df
 
 
@@ -257,22 +298,34 @@ def compute_similarity(
     similarity_func: Callable,
     process_name: str | None = None,
 ) -> pd.DataFrame:
-    get_similarity_value = partial(
-        _get_similarity_to,
+    get_similarity_sub_df = partial(
+        _get_similarity_sub_df,
         img_df=img_df,
         similarity_func=similarity_func,
+        similarity_name=similarity_name,
         process_name=process_name,
     )
-    similarity_feat = _get_similarity_feat(
-        similarity_name=similarity_name, process_name=process_name
-    )
     img_df = img_df.copy()
-    img_df[similarity_feat] = None
 
     for img_idx, img_row in img_df.iterrows():
-        img_df.at[img_idx, similarity_feat] = get_similarity_value(
-            img_row=img_row
-        )
+        similarity_sub_df = get_similarity_sub_df(img_row=img_row)
+        if isinstance(
+            img_row[_CONFIG.DATASET_FEATURES.SIMILARITY], pd.DataFrame
+        ):
+            img_df.at[img_idx, _CONFIG.DATASET_FEATURES.SIMILARITY] = (
+                similarity_sub_df
+            )
+        else:
+            similarity_df: pd.DataFrame = pd.concat(
+                img_row[_CONFIG.DATASET_FEATURES.SIMILARITY], similarity_sub_df
+            )
+            similarity_df = similarity_df.sort_values(
+                by=[
+                    _CONFIG.DATASET_FEATURES.SIMILARITY_METHOD,
+                    _CONFIG.DATASET_FEATURES.PROCESS_METHOD,
+                    _CONFIG.DATASET_FEATURES.SUBJECT_ID,
+                ]
+            )
     return img_df
 
 
@@ -282,14 +335,26 @@ def get_similarity_mat(
     similarity_name: str,
     process_name: str | None = None,
 ) -> pd.DataFrame:
-    img_df = img_df[img_df[_REGION_FEAT] == region].copy()
-    similarity_feat = _get_similarity_feat(
-        similarity_name=similarity_name, process_name=process_name
-    )
+    process_name = _get_process_name(process_name=process_name)
+    img_df = img_df[img_df[_CONFIG.DATASET_FEATURES.REGION] == region].copy()
     similarity_mat = np.empty((len(img_df), len(img_df)))
     for img_idx, img_row in img_df.iterrows():
-        similarity_df: pd.DataFrame = img_row[similarity_feat]
-        similarity_mat[img_idx] = similarity_df[_SIMILARITY_FEAT].values
+        similarity_df: pd.DataFrame = img_row[
+            _CONFIG.DATASET_FEATURES.SIMILARITY
+        ]
+        similarity_df = similarity_df[
+            (
+                similarity_df[_CONFIG.DATASET_FEATURES.SIMILARITY_METHOD]
+                == similarity_name
+            )
+            & (
+                similarity_df[_CONFIG.DATASET_FEATURES.PROCESS_METHOD]
+                == process_name
+            )
+        ]
+        similarity_mat[img_idx] = similarity_df[
+            _CONFIG.DATASET_FEATURES.SIMILARITY
+        ].values
     return similarity_mat
 
 
@@ -310,7 +375,9 @@ def _compute_similarity_avg(
         n_subjects = min(n_subjects, len(similarity_df))
 
     for idxs in combinations(similarity_df.index, n_subjects):
-        avg = similarity_df.loc[list(idxs), _SIMILARITY_FEAT].mean()
+        avg = similarity_df.loc[
+            list(idxs), _CONFIG.DATASET_FEATURES.SIMILARITY
+        ].mean()
         average_similarity.append(avg)
     return average_similarity
 
@@ -323,20 +390,29 @@ def get_average_similarity(
     n_subjects: int = 0,
 ) -> SimilarityVals:
     compute_avg = partial(_compute_similarity_avg, n_subjects=n_subjects)
-    similarity_feat = _get_similarity_feat(
-        similarity_name=similarity_name,
-        process_name=process_name,
-    )
-    similarity_df: pd.DataFrame = img_row[similarity_feat].copy()
+    similarity_df: pd.DataFrame = img_row[
+        _CONFIG.DATASET_FEATURES.SIMILARITY
+    ].copy()
+    similarity_df = similarity_df[
+        (
+            similarity_df[_CONFIG.DATASET_FEATURES.SIMILARITY_METHOD]
+            == similarity_name
+        )
+        & (
+            similarity_df[_CONFIG.DATASET_FEATURES.PROCESS_METHOD]
+            == process_name
+        )
+    ]
     similarity_df = similarity_df.drop(img_idx, axis=0)
     similarity_df = similarity_df[
-        similarity_df[_DATA_TYPE_FEAT] == _DATA_TYPE_REAL
+        similarity_df[_CONFIG.DATASET_FEATURES.DATA_TYPE]
+        == _CONFIG.NAMES.DATA_TYPE.REAL
     ]
     specific_similarity_df = similarity_df[
-        similarity_df[_SPECIFIC_FEAT] == 1
+        similarity_df[_CONFIG.DATASET_FEATURES.IS_SPECIFIC] == 1
     ].copy()
     non_specific_similarity_df = similarity_df[
-        similarity_df[_SPECIFIC_FEAT] == 0
+        similarity_df[_CONFIG.DATASET_FEATURES.IS_SPECIFIC] == 0
     ].copy()
     specific_avg_similarity = compute_avg(
         similarity_df=specific_similarity_df,
@@ -369,21 +445,28 @@ def get_average_similarity_dataset(
         for specific_v, non_specific_v in product(
             specific_vals, non_specific_vals
         ):
-            avg_similarity_dataset[_INDEX_FEAT].append(img_idx)
+            avg_similarity_dataset[_CONFIG.DATASET_FEATURES.SUBJECT_ID].append(
+                img_idx
+            )
             for feat in [
-                _DATA_TYPE_FEAT,
-                _STIMULATION_FEAT,
-                _SUBJECT_FEAT,
-                _SPECIFIC_FEAT,
-                _SIMILARITY_FEAT,
+                _CONFIG.DATASET_FEATURES.DATA_TYPE,
+                _CONFIG.DATASET_FEATURES.STIMULATION,
+                _CONFIG.DATASET_FEATURES.SUBJECT,
+                _CONFIG.DATASET_FEATURES.IS_SPECIFIC,
+                _CONFIG.DATASET_FEATURES.SIMILARITY,
             ]:
                 avg_similarity_dataset[feat].append(img_row[feat])
 
-            avg_similarity_dataset[_SIMILARITY_FEAT] = _get_similarity_feat(
-                similarity_name=similarity_name, process_name=process_name
+            avg_similarity_dataset[_CONFIG.DATASET_FEATURES.PROCESS_METHOD] = (
+                process_name
             )
-            avg_similarity_dataset[_SPECIFIC_SIMILARITY_FEAT] = specific_v
-            avg_similarity_dataset[_NON_SPECIFIC_SIMILARITY_FEAT] = (
-                non_specific_v
-            )
+            avg_similarity_dataset[
+                _CONFIG.DATASET_FEATURES.SIMILARITY_METHOD
+            ] = similarity_name
+            avg_similarity_dataset[
+                _CONFIG.DATASET_FEATURES.SPECIFIC_SIMILARITY
+            ] = specific_v
+            avg_similarity_dataset[
+                _CONFIG.DATASET_FEATURES.NON_SPECIFIC_SIMILARITY
+            ] = non_specific_v
     return pd.DataFrame(avg_similarity_dataset)

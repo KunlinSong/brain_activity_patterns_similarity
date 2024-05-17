@@ -1,0 +1,41 @@
+REGION_SPECIFIC_STIMULATIONS:
+  STG: "auditory stimulation"
+  FFA: "visual stimulation"
+
+DATASET_FEATURES:
+  REGION: "region"
+  STRUCTURE: "structure"
+  HEMISPHERE: "hemisphere"
+  DATA_TYPE: "data type"
+  STIMULATION: "stimulation"
+  IS_SPECIFIC: "is specific"
+  SUBJECT: "subject"
+  SIMILARITY: "similarity"
+  PROCESS_METHOD: "process method"
+  SIMILARITY_METHOD: "similarity method"
+  SUBJECT_ID: "subject ID"
+  SPECIFIC_SIMILARITY: "specific similarity"
+  NON_SPECIFIC_SIMILARITY: "non specific similarity"
+  SUBSET_TYPE: "subset type"
+
+NAMES:
+  DATA_TYPE:
+    REAL: "real"
+    RANDOM: "random"
+
+  PROCESS:
+    ORIGINAL: "original"
+
+  SUBSET_TYPE:
+    TRAIN: "train"
+    VALIDATION: "validation"
+    TEST: "test"
+
+  ROI_CONFIG:
+    SIDE_LENGTH: "side_length"
+    COORDINATES: "coordinates"
+    LEFT_HEMISPHERE: "L"
+    RIGHT_HEMISPHERE: "R"
+    X: "x"
+    Y: "y"
+    Z: "z"
