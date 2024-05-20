@@ -1,6 +1,5 @@
-# %%
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from functools import partial
 
 import yaml
@@ -68,14 +67,13 @@ class Names:
     ROI_CONFIG: ROIConfig = ROIConfig()
 
     def __init__(self, **kwargs) -> None:
-        if config_dict is not None:
-            setattr_from_config = partial(
-                _setattr_from_config, obj=self, config=config_dict
-            )
-            setattr_from_config(attr="DATA_TYPE", cls=DataType)
-            setattr_from_config(attr="PROCESS", cls=Process)
-            setattr_from_config(attr="SUBSET_TYPE", cls=SubsetType)
-            setattr_from_config(attr="ROI_CONFIG", cls=ROIConfig)
+        setattr_from_config = partial(
+            _setattr_from_config, obj=self, config=kwargs
+        )
+        setattr_from_config(attr="DATA_TYPE", cls=DataType)
+        setattr_from_config(attr="PROCESS", cls=Process)
+        setattr_from_config(attr="SUBSET_TYPE", cls=SubsetType)
+        setattr_from_config(attr="ROI_CONFIG", cls=ROIConfig)
 
 
 @dataclass
@@ -90,13 +88,18 @@ class Config:
         )
         setattr_from_config(attr="NAMES", cls=Names)
         setattr_from_config(attr="DATASET_FEATURES", cls=DatasetFeatures)
-        self.REGION_SPECIFIC_STIMULATIONS = config_dict[
+        self.REGION_SPECIFIC_STIMULATIONS = kwargs[
             "REGION_SPECIFIC_STIMULATIONS"
         ]
 
 
 def get_config() -> Config:
-    path = os.path.join("..", "config", "basic.yaml")
+    root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(
+        root_path,
+        "config",
+        "basic.yaml",
+    )
     with open(path) as f:
         config_dict = yaml.safe_load(f)
         config = Config(**config_dict)
