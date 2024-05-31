@@ -1,37 +1,36 @@
-REGION_SPECIFIC_STIMULATIONS:
-  STG: "auditory stimulation"
-  FFA: "visual stimulation"
-
 DATASET_FEATURES:
-  REGION: "region"
-  STRUCTURE: "structure"
-  HEMISPHERE: "hemisphere"
   DATA_TYPE: "data type"
-  STIMULATION: "stimulation"
+  HEMISPHERE: "hemisphere"
   IS_SPECIFIC: "is specific"
-  SUBJECT: "subject"
-  SIMILARITY: "similarity"
   PROCESS_METHOD: "process method"
+  REGION: "region"
+  SIMILARITY: "similarity"
   SIMILARITY_METHOD: "similarity method"
+  STRUCTURE: "structure"
+  STIMULATION: "stimulation"
+  SUBJECT: "subject"
   SUBJECT_ID: "subject ID"
-  SPECIFIC_SIMILARITY: "specific similarity"
-  NON_SPECIFIC_SIMILARITY: "non specific similarity"
   SUBSET_TYPE: "subset type"
+
+FORMATS:
+# You can change the formats as you need but not the variable names.
+  DATATYPE_STIMULATION_FEAT: "f\"{stimulation_feat} ({data_type_feat})\""
+  DATATYPE_STIMULATION_NAME: "f\"{stimulation} ({data_type})\""
+  GROUP_BY_PROCESS_TITLE: "f\"{similarity_name} ({region})\""
+  GROUP_BY_REGION_TITLE: "f\"{similarity_name} ({process_name})\""
+  PROCESS_SIMILARITY_FEAT: "f\"{similarity_name} ({process_name}, {similarity_type})\""
+  REGION_NAME: "f\"{structure} {hemisphere}\""
 
 NAMES:
   DATA_TYPE:
-    REAL: "real"
     RANDOM: "random"
+    REAL: "real"
 
   PROCESS:
     ORIGINAL: "original"
 
-  SUBSET_TYPE:
-    TRAIN: "train"
-    VALIDATION: "validation"
-    TEST: "test"
-
   ROI_CONFIG:
+  # Make sure all names are the same as those used in `roi.yaml`
     SIDE_LENGTH: "side_length"
     COORDINATES: "coordinates"
     LEFT_HEMISPHERE: "L"
@@ -39,3 +38,18 @@ NAMES:
     X: "x"
     Y: "y"
     Z: "z"
+
+  SIMILARITY_TYPE:
+    SPECIFIC: "specific similarity"
+    NON_SPECIFIC: "non-specific similarity"
+
+  SUBSET_TYPE:
+    TRAIN: "train"
+    VALIDATION: "validation"
+    TEST: "test"
+
+REGION_SPECIFIC_STIMULATIONS:
+# Make sure all region names are the same as in `roi.yaml`
+# Make sure the stimulation is the same as the folder name in `data\`
+  FFA: "visual stimulation"
+  STG: "auditory stimulation"
