@@ -47,47 +47,47 @@ def _voxel_based_similarity(func: Callable):
 
 
 @_voxel_based_similarity
-def chebyshev(x: np.ndarray, y: np.ndarray) -> float:
+def chebyshev(x: np.ndarray, y: np.ndarray, /) -> float:
     return distance.chebyshev(x, y)
 
 
 @_voxel_based_similarity
-def cityblock(x: np.ndarray, y: np.ndarray) -> float:
+def cityblock(x: np.ndarray, y: np.ndarray, /) -> float:
     return distance.cityblock(x, y)
 
 
 @_voxel_based_similarity
-def cosine(x: np.ndarray, y: np.ndarray) -> float:
+def cosine(x: np.ndarray, y: np.ndarray, /) -> float:
     return distance.cosine(x, y)
 
 
 @_voxel_based_similarity
-def euclidean(x: np.ndarray, y: np.ndarray) -> float:
+def euclidean(x: np.ndarray, y: np.ndarray, /) -> float:
     return distance.euclidean(x, y)
 
 
 @_voxel_based_similarity
-def minkowski(x: np.ndarray, y: np.ndarray, p: float) -> float:
+def minkowski(x: np.ndarray, y: np.ndarray, /, p: float) -> float:
     return distance.minkowski(x, y, p)
 
 
-def minkowski_5(x: np.ndarray, y: np.ndarray) -> float:
-    return minkowski(x=x, y=y, p=5)
+def minkowski_5(x: np.ndarray, y: np.ndarray, /) -> float:
+    return minkowski(x, y, p=5)
 
 
-def minkowski_10(x: np.ndarray, y: np.ndarray) -> float:
-    return minkowski(x=x, y=y, p=10)
+def minkowski_10(x: np.ndarray, y: np.ndarray, /) -> float:
+    return minkowski(x, y, p=10)
 
 
-def minkowski_50(x: np.ndarray, y: np.ndarray) -> float:
-    return minkowski(x=x, y=y, p=50)
+def minkowski_50(x: np.ndarray, y: np.ndarray, /) -> float:
+    return minkowski(x, y, p=50)
 
 
 @_voxel_based_similarity
-def pearson(x: np.ndarray, y: np.ndarray) -> float:
+def pearson(x: np.ndarray, y: np.ndarray, /) -> float:
     return stats.pearsonr(x, y)[0]
 
 
 @_voxel_based_similarity
-def spearman(x: np.ndarray, y: np.ndarray) -> float:
-    return stats.spearmanr(x, y)
+def spearman(x: np.ndarray, y: np.ndarray, /) -> float:
+    return stats.spearmanr(x, y)[0]
