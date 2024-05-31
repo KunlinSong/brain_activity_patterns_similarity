@@ -8,74 +8,19 @@ column in the database.
 """
 
 import re
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from functools import partial
-from itertools import combinations, product
+from itertools import combinations
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable, Iterable
 
 import nibabel
 import numpy as np
 import pandas as pd
-import yaml
 
-from .config import get_config
+from .config import _get_axis_max_feat, _get_axis_min_feat, get_basic_config
 
-_CONFIG = get_config()
-
-
-def _get_axis_min_feat(axis: Any) -> str:
-    return f"{axis} min"
-
-
-def _get_axis_max_feat(axis: Any) -> str:
-    return f"{axis} max"
-
-
-def get_rois_df(path: str) -> pd.DataFrame:
-    rois_df_dict = defaultdict(list)
-    with open(path, "r") as f:
-        roi_config: dict = yaml.safe_load(f)
-    len_side = roi_config[_CONFIG.NAMES.ROI_CONFIG.SIDE_LENGTH]
-    side_mid_front = len_side // 2
-    side_mid_back = len_side - side_mid_front
-    get_min = lambda x: x - side_mid_front
-    get_max = lambda x: x + side_mid_back
-    coords: dict = roi_config[_CONFIG.NAMES.ROI_CONFIG.COORDINATES]
-    for structure in coords.keys():
-        structure_coords: dict = roi_config[
-            _CONFIG.NAMES.ROI_CONFIG.COORDINATES
-        ][structure]
-        for hemisphere in [
-            _CONFIG.NAMES.ROI_CONFIG.LEFT_HEMISPHERE,
-            _CONFIG.NAMES.ROI_CONFIG.RIGHT_HEMISPHERE,
-        ]:
-            region_coord: dict = structure_coords[hemisphere]
-
-            rois_df_dict[_CONFIG.DATASET_FEATURES.REGION].append(
-                f"{structure} {hemisphere}"
-            )
-            rois_df_dict[_CONFIG.DATASET_FEATURES.STRUCTURE].append(structure)
-            rois_df_dict[_CONFIG.DATASET_FEATURES.HEMISPHERE].append(
-                hemisphere
-            )
-            for axis in [
-                _CONFIG.NAMES.ROI_CONFIG.X,
-                _CONFIG.NAMES.ROI_CONFIG.Y,
-                _CONFIG.NAMES.ROI_CONFIG.Z,
-            ]:
-                coord_axis = region_coord[axis]
-                rois_df_dict[axis].append(coord_axis)
-                rois_df_dict[_get_axis_min_feat(axis)].append(
-                    get_min(coord_axis)
-                )
-                rois_df_dict[_get_axis_max_feat(axis)].append(
-                    get_max(coord_axis)
-                )
-    rois_df = pd.DataFrame(rois_df_dict)
-    rois_df = rois_df.sort_values(by=[_CONFIG.DATASET_FEATURES.REGION])
-    rois_df = rois_df.reset_index(drop=True)
-    return rois_df
+_CONFIG = get_basic_config()
 
 
 def get_filename(stimulation: str, subject: str) -> str:
@@ -107,7 +52,7 @@ def load_brain_images(
             filename = get_filename_func(
                 stimulation=stimulation.name, subject=subject.name
             )
-            path = str(subject.joinpath(filename))
+            path = subject.joinpath(filename)
             if not path.exists():
                 print(f"Warning: file not found. Skipping ({path}).")
                 continue
@@ -309,23 +254,21 @@ def compute_similarity(
 
     for img_idx, img_row in img_df.iterrows():
         similarity_sub_df = get_similarity_sub_df(img_row=img_row)
-        if isinstance(
-            img_row[_CONFIG.DATASET_FEATURES.SIMILARITY], pd.DataFrame
-        ):
-            img_df.at[img_idx, _CONFIG.DATASET_FEATURES.SIMILARITY] = (
-                similarity_sub_df
-            )
-        else:
-            similarity_df: pd.DataFrame = pd.concat(
-                img_row[_CONFIG.DATASET_FEATURES.SIMILARITY], similarity_sub_df
-            )
-            similarity_df = similarity_df.sort_values(
-                by=[
-                    _CONFIG.DATASET_FEATURES.SIMILARITY_METHOD,
-                    _CONFIG.DATASET_FEATURES.PROCESS_METHOD,
-                    _CONFIG.DATASET_FEATURES.SUBJECT_ID,
-                ]
-            )
+        similarity_df: pd.DataFrame = pd.concat(
+            [
+                img_row[_CONFIG.DATASET_FEATURES.SIMILARITY],
+                similarity_sub_df,
+            ]
+        )
+        similarity_df = similarity_df.sort_values(
+            by=[
+                _CONFIG.DATASET_FEATURES.SIMILARITY_METHOD,
+                _CONFIG.DATASET_FEATURES.PROCESS_METHOD,
+                _CONFIG.DATASET_FEATURES.SUBJECT_ID,
+            ],
+            ignore_index=True,
+        )
+        img_df.at[img_idx, _CONFIG.DATASET_FEATURES.SIMILARITY] = similarity_df
     return img_df
 
 
@@ -334,11 +277,12 @@ def get_similarity_mat(
     region: str,
     similarity_name: str,
     process_name: str | None = None,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, list[list[int]]]:
     process_name = _get_process_name(process_name=process_name)
     img_df = img_df[img_df[_CONFIG.DATASET_FEATURES.REGION] == region].copy()
+    img_df = img_df.sort_index()
     similarity_mat = np.empty((len(img_df), len(img_df)))
-    for img_idx, img_row in img_df.iterrows():
+    for mat_idx, (_, img_row) in enumerate(img_df.iterrows()):
         similarity_df: pd.DataFrame = img_row[
             _CONFIG.DATASET_FEATURES.SIMILARITY
         ]
@@ -352,47 +296,79 @@ def get_similarity_mat(
                 == process_name
             )
         ]
-        similarity_mat[img_idx] = similarity_df[
+        similarity_df = similarity_df.sort_values(
+            by=_CONFIG.DATASET_FEATURES.SUBJECT_ID
+        )
+        similarity_mat[mat_idx] = similarity_df[
             _CONFIG.DATASET_FEATURES.SIMILARITY
         ].values
-    return similarity_mat
+    return similarity_mat, [
+        img_df.index.tolist(),
+        similarity_df[_CONFIG.DATASET_FEATURES.SUBJECT_ID].tolist(),
+    ]
 
 
-SimilarityVals = namedtuple(
-    "SimilarityVals", ["specific", "non_specific"], defaults=[[], []]
-)
-
-
-def _compute_similarity_avg(
-    similarity_df: pd.DataFrame, n_subjects: int = 0
-) -> list[float]:
-    average_similarity = []
-    if n_subjects <= -len(similarity_df):
-        return average_similarity
-    elif n_subjects <= 0:
-        n_subjects += len(similarity_df)
-    else:
-        n_subjects = min(n_subjects, len(similarity_df))
-
-    for idxs in combinations(similarity_df.index, n_subjects):
-        avg = similarity_df.loc[
-            list(idxs), _CONFIG.DATASET_FEATURES.SIMILARITY
-        ].mean()
-        average_similarity.append(avg)
-    return average_similarity
-
-
-def get_average_similarity(
-    img_idx: int,
-    img_row: pd.Series,
-    similarity_name: str,
-    process_name: str | None = None,
-    n_subjects: int = 0,
-) -> SimilarityVals:
-    compute_avg = partial(_compute_similarity_avg, n_subjects=n_subjects)
+def _get_same_type_similarity_sub_df(
+    img_idx: int, img_row: pd.Series
+) -> pd.DataFrame:
     similarity_df: pd.DataFrame = img_row[
         _CONFIG.DATASET_FEATURES.SIMILARITY
     ].copy()
+    similarity_df = similarity_df[
+        similarity_df[_CONFIG.DATASET_FEATURES.SUBJECT_ID] != img_idx
+    ]
+    same_type_df = similarity_df[
+        (
+            similarity_df[_CONFIG.DATASET_FEATURES.DATA_TYPE]
+            == img_row[_CONFIG.DATASET_FEATURES.DATA_TYPE]
+        )
+        & (
+            similarity_df[_CONFIG.DATASET_FEATURES.STIMULATION]
+            == img_row[_CONFIG.DATASET_FEATURES.STIMULATION]
+        )
+    ].copy()
+    same_type_df[_CONFIG.DATASET_FEATURES.REGION] = img_row[
+        _CONFIG.DATASET_FEATURES.REGION
+    ]
+    same_type_df[_CONFIG.DATASET_FEATURES.STRUCTURE] = img_row[
+        _CONFIG.DATASET_FEATURES.STRUCTURE
+    ]
+    same_type_df[_CONFIG.DATASET_FEATURES.HEMISPHERE] = img_row[
+        _CONFIG.DATASET_FEATURES.HEMISPHERE
+    ]
+    return same_type_df
+
+
+def get_same_type_similarity_df(img_df: pd.DataFrame) -> pd.DataFrame:
+    sub_df_lst = []
+    for img_idx, img_row in img_df.iterrows():
+        sub_df = _get_same_type_similarity_sub_df(
+            img_idx=img_idx, img_row=img_row
+        )
+        sub_df_lst.append(sub_df)
+    return pd.concat(sub_df_lst, ignore_index=True)
+
+
+def _combine_subject_ids(subject_ids: list, n_subjects: int = 0) -> Iterable:
+    if not subject_ids:
+        raise ValueError("There are subject IDs in `subject_ids`.")
+    if n_subjects <= -len(subject_ids):
+        n_subjects = 1
+    elif n_subjects <= 0:
+        n_subjects += len(subject_ids)
+    else:
+        n_subjects = min(n_subjects, len(subject_ids))
+
+    yield from combinations(subject_ids, n_subjects)
+
+
+def _compute_similarity_avg(
+    similarity_df: pd.DataFrame,
+    similarity_name: str,
+    process_name: str | None,
+    avg_ids: list,
+) -> float:
+    process_name = _get_process_name(process_name)
     similarity_df = similarity_df[
         (
             similarity_df[_CONFIG.DATASET_FEATURES.SIMILARITY_METHOD]
@@ -402,71 +378,95 @@ def get_average_similarity(
             similarity_df[_CONFIG.DATASET_FEATURES.PROCESS_METHOD]
             == process_name
         )
+    ].copy()
+    return similarity_df[
+        similarity_df[_CONFIG.DATASET_FEATURES.SUBJECT_ID].isin(avg_ids)
+    ][_CONFIG.DATASET_FEATURES.SIMILARITY].mean()
+
+
+def get_average_similarity(
+    img_idx: int,
+    img_row: pd.Series,
+    similarity_process_pairs: list[str, str | None],
+    n_subjects: int = 0,
+) -> pd.DataFrame:
+    avg_similarity_df_dict = defaultdict(list)
+    similarity_df: pd.DataFrame = img_row[
+        _CONFIG.DATASET_FEATURES.SIMILARITY
+    ].copy()
+    similarity_df = similarity_df[
+        similarity_df[_CONFIG.DATASET_FEATURES.SUBJECT_ID] != img_idx
     ]
-    similarity_df = similarity_df.drop(img_idx, axis=0)
     similarity_df = similarity_df[
         similarity_df[_CONFIG.DATASET_FEATURES.DATA_TYPE]
         == _CONFIG.NAMES.DATA_TYPE.REAL
     ]
-    specific_similarity_df = similarity_df[
-        similarity_df[_CONFIG.DATASET_FEATURES.IS_SPECIFIC] == 1
-    ].copy()
-    non_specific_similarity_df = similarity_df[
-        similarity_df[_CONFIG.DATASET_FEATURES.IS_SPECIFIC] == 0
-    ].copy()
-    specific_avg_similarity = compute_avg(
-        similarity_df=specific_similarity_df,
+    specific_ids = (
+        similarity_df[
+            similarity_df[_CONFIG.DATASET_FEATURES.IS_SPECIFIC] == 1
+        ][_CONFIG.DATASET_FEATURES.SUBJECT_ID]
+        .unique()
+        .tolist()
     )
-    non_specific_avg_similarity = compute_avg(
-        similarity_df=non_specific_similarity_df
+    non_specific_ids = (
+        similarity_df[
+            similarity_df[_CONFIG.DATASET_FEATURES.IS_SPECIFIC] == 0
+        ][_CONFIG.DATASET_FEATURES.SUBJECT_ID]
+        .unique()
+        .tolist()
     )
-    return SimilarityVals(
-        specific=specific_avg_similarity,
-        non_specific=non_specific_avg_similarity,
+
+    def _append_avg_similarity(subject_ids: list, similarity_type: str):
+        nonlocal avg_similarity_df_dict
+        for similarity_name, process_name in similarity_process_pairs:
+            for avg_ids in _combine_subject_ids(
+                subject_ids=subject_ids, n_subjects=n_subjects
+            ):
+                avg_similarity_df_dict[
+                    eval(_CONFIG.FORMATS.PROCESS_SIMILARITY_FEAT)
+                ].append(
+                    _compute_similarity_avg(
+                        similarity_df=similarity_df,
+                        similarity_name=similarity_name,
+                        process_name=process_name,
+                        avg_ids=avg_ids,
+                    )
+                )
+
+    _append_avg_similarity(
+        subject_ids=specific_ids,
+        similarity_type=_CONFIG.NAMES.SIMILARITY_TYPE.SPECIFIC,
     )
+    _append_avg_similarity(
+        subject_ids=non_specific_ids,
+        similarity_type=_CONFIG.NAMES.SIMILARITY_TYPE.NON_SPECIFIC,
+    )
+    avg_similarity_df = pd.DataFrame(avg_similarity_df_dict)
+    avg_similarity_df[_CONFIG.DATASET_FEATURES.IS_SPECIFIC] = img_row[
+        _CONFIG.DATASET_FEATURES.IS_SPECIFIC
+    ]
+    return avg_similarity_df
 
 
 def get_average_similarity_dataset(
     img_df: pd.DataFrame,
-    similarity_and_process_names: list[tuple[str, str | None]],
+    similarity_and_process_pairs: list[tuple[str, str | None]],
+    only_real: bool = True,
     n_subjects: int = 0,
 ) -> pd.DataFrame:
-    avg_similarity_dataset = defaultdict(list)
-    for (img_idx, img_row), (similarity_name, process_name) in product(
-        img_df.iterrows(), similarity_and_process_names
-    ):
-        specific_vals, non_specific_vals = get_average_similarity(
+    if only_real:
+        img_df = img_df[
+            img_df[_CONFIG.DATASET_FEATURES.DATA_TYPE]
+            == _CONFIG.NAMES.DATA_TYPE.REAL
+        ]
+    avg_similarity_df_lst = []
+    for img_idx, img_row in img_df.iterrows():
+        row_avg_similarity_df = get_average_similarity(
             img_idx=img_idx,
             img_row=img_row,
-            similarity_name=similarity_name,
-            process_name=process_name,
+            similarity_process_pairs=similarity_and_process_pairs,
             n_subjects=n_subjects,
         )
-        for specific_v, non_specific_v in product(
-            specific_vals, non_specific_vals
-        ):
-            avg_similarity_dataset[_CONFIG.DATASET_FEATURES.SUBJECT_ID].append(
-                img_idx
-            )
-            for feat in [
-                _CONFIG.DATASET_FEATURES.DATA_TYPE,
-                _CONFIG.DATASET_FEATURES.STIMULATION,
-                _CONFIG.DATASET_FEATURES.SUBJECT,
-                _CONFIG.DATASET_FEATURES.IS_SPECIFIC,
-                _CONFIG.DATASET_FEATURES.SIMILARITY,
-            ]:
-                avg_similarity_dataset[feat].append(img_row[feat])
-
-            avg_similarity_dataset[_CONFIG.DATASET_FEATURES.PROCESS_METHOD] = (
-                process_name
-            )
-            avg_similarity_dataset[
-                _CONFIG.DATASET_FEATURES.SIMILARITY_METHOD
-            ] = similarity_name
-            avg_similarity_dataset[
-                _CONFIG.DATASET_FEATURES.SPECIFIC_SIMILARITY
-            ] = specific_v
-            avg_similarity_dataset[
-                _CONFIG.DATASET_FEATURES.NON_SPECIFIC_SIMILARITY
-            ] = non_specific_v
-    return pd.DataFrame(avg_similarity_dataset)
+        avg_similarity_df_lst.append(row_avg_similarity_df)
+    avg_similarity_df = pd.concat(avg_similarity_df_lst, ignore_index=True)
+    return avg_similarity_df
