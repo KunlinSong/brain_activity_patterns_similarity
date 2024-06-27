@@ -1,0 +1,8 @@
+# You can change the formats as you need, but not the variable names.
+DATATYPE_STIMULATION_FEATURE: "f\"{stimulation_feat} ({data_type_feat})\""
+DATATYPE_STIMULATION_CATEGORY: "f\"{stimulation} ({data_type})\""
+GROUP_BY_PROCESS_TITLE: "f\"{similarity_name} ({region})\""
+GROUP_BY_REGION_TITLE: "f\"{similarity_name} ({process_name})\""
+PROCESS_SIMILARITY_FEATURE: "f\"{similarity_name} ({process_name}, {similarity_type})\""
+REGION_CATEGORY: "f\"{structure} {hemisphere}\""
+DATATYPE_STIMULATION_SUBJECT_LABEL: "f\"{data_type} ({stimulation}) - {subject}\""

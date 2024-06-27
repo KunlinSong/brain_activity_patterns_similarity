@@ -1,0 +1,15 @@
+DATA_TYPE:
+  RANDOM: "random"
+  REAL: "real"
+
+PROCESS_METHOD:
+  ORIGINAL: "original"
+
+SIMILARITY_TYPE:
+  SPECIFIC: "specific similarity"
+  NON_SPECIFIC: "non-specific similarity"
+
+SUBSET_TYPE:
+  TRAIN: "train"
+  VALIDATION: "validation"
+  TEST: "test"
