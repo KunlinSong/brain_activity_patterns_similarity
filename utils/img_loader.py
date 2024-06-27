@@ -4,7 +4,6 @@ We use pandas to build a DataFrame object that contains the image data.
 """
 
 import re
-from collections import defaultdict
 from itertools import product
 from pathlib import Path
 
@@ -12,12 +11,14 @@ import nibabel
 import numpy as np
 import pandas as pd
 
-from .config import get_basic_config, get_roi_config_df
+from .config import (
+    get_categories_config,
+    get_features_config,
+    get_formats_config,
+    get_rois_config,
+)
 
-__all__ = [
-    "load_brain_images",
-    "load_roi_images",
-]
+__all__ = ["load_brain_images", "load_roi_images"]
 
 
 def _get_filename(stimulation: str, subject: str) -> str:
@@ -31,16 +32,44 @@ def _get_filename(stimulation: str, subject: str) -> str:
             raise ValueError(f"Unknown stimulation: {stimulation}")
 
 
+def _load_brain_img(
+    dirname: Path, stimulation: str, subject: str
+) -> pd.Series:
+    _FEATURES_CONFIG = get_features_config()
+    _FORMATS_CONFIG = get_formats_config()
+    _CATEGORIES_CONFIG = get_categories_config()
+    filename = _get_filename(stimulation=stimulation, subject=subject)
+    img_path = dirname.joinpath(filename)
+    if not img_path.exists():
+        print(f"Warning: file not found. Skipping ({img_path}).")
+        raise FileNotFoundError
+    img = np.array(nibabel.load(img_path).get_fdata())
+    dtype_stim_feat = _FORMATS_CONFIG.format_datatype_stimulation_feature(
+        stimulation_feat=_FEATURES_CONFIG.STIMULATION,
+        data_type_feat=_FEATURES_CONFIG.DATA_TYPE,
+    )
+    dtype_stim_category = _FORMATS_CONFIG.format_datatype_stimulation_category(
+        stimulation=stimulation,
+        data_type=_CATEGORIES_CONFIG.DATA_TYPE.REAL,
+    )
+    img_info_dict = {
+        _FEATURES_CONFIG.DATA_TYPE: _CATEGORIES_CONFIG.DATA_TYPE.REAL,
+        _FEATURES_CONFIG.STIMULATION: stimulation,
+        dtype_stim_feat: dtype_stim_category,
+        _FEATURES_CONFIG.SUBJECT: subject,
+        _FEATURES_CONFIG.IMAGES: pd.Series(
+            {_CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL: img}
+        ),
+    }
+    return pd.Series(img_info_dict)
+
+
 def load_brain_images(
     dirname: str,
 ) -> pd.DataFrame:
-    _BASIC_CONFIG = get_basic_config()
-    brain_images = defaultdict(list)
+    _FEATURES_CONFIG = get_features_config()
+    img_info_lst = []
     dirname: Path = Path(dirname)
-    data_type_feat = _BASIC_CONFIG.DATASET_FEATURES.DATA_TYPE
-    stimulation_feat = _BASIC_CONFIG.DATASET_FEATURES.STIMULATION
-    dtype_stim_feat = eval(_BASIC_CONFIG.FORMATS.DATATYPE_STIMULATION_FEAT)
-    data_type = _BASIC_CONFIG.NAMES.DATA_TYPE.REAL
     for stimulation_dir in dirname.iterdir():
         if not stimulation_dir.is_dir():
             continue
@@ -48,31 +77,23 @@ def load_brain_images(
         for subject_dir in stimulation_dir.iterdir():
             if not subject_dir.is_dir():
                 continue
+            subject = subject_dir.name
 
-            filename = _get_filename(
-                stimulation=stimulation_dir.name, subject=subject_dir.name
-            )
-            img_path = subject_dir.joinpath(filename)
-            if not img_path.exists():
-                print(f"Warning: file not found. Skipping ({img_path}).")
+            try:
+                img_info_series = _load_brain_img(
+                    dirname=subject_dir,
+                    stimulation=stimulation,
+                    subject=subject,
+                )
+            except FileNotFoundError:
                 continue
-            img = np.array(nibabel.load(img_path).get_fdata())
+            img_info_lst.append(img_info_series)
 
-            brain_images[data_type_feat].append(data_type)
-            brain_images[stimulation_feat].append(stimulation)
-            brain_images[dtype_stim_feat].append(
-                eval(_BASIC_CONFIG.FORMATS.DATATYPE_STIMULATION_NAME)
-            )
-            brain_images[_BASIC_CONFIG.DATASET_FEATURES.SUBJECT].append(
-                subject_dir.name
-            )
-            brain_images[_BASIC_CONFIG.NAMES.PROCESS.ORIGINAL].append(img)
-
-    brain_img_df = pd.DataFrame(brain_images)
+    brain_img_df = pd.DataFrame(img_info_lst)
     brain_img_df = brain_img_df.sort_values(
         by=[
-            _BASIC_CONFIG.DATASET_FEATURES.STIMULATION,
-            _BASIC_CONFIG.DATASET_FEATURES.SUBJECT,
+            _FEATURES_CONFIG.STIMULATION,
+            _FEATURES_CONFIG.SUBJECT,
         ]
     )
     brain_img_df = brain_img_df.reset_index(drop=True)
@@ -80,54 +101,33 @@ def load_brain_images(
 
 
 def load_roi_images(dirname: str) -> pd.DataFrame:
-    _BASIC_CONFIG = get_basic_config()
-    roi_config_df = get_roi_config_df()
-    brain_img_df = load_brain_images(dirname=dirname)
-    data_type_feat = _BASIC_CONFIG.DATASET_FEATURES.DATA_TYPE
-    stimulation_feat = _BASIC_CONFIG.DATASET_FEATURES.STIMULATION
-    dtype_stim_feat = eval(_BASIC_CONFIG.FORMATS.DATATYPE_STIMULATION_FEAT)
-    roi_img_dict = defaultdict(list)
-    for (_, brain_img_info), (_, roi_info) in product(
-        brain_img_df.iterrows(), roi_config_df.iterrows()
+    _FEATURES_CONFIG = get_features_config()
+    _CATEGORIES_CONFIG = get_categories_config()
+    rois_config = get_rois_config()
+    brain_imgs_df = load_brain_images(dirname=dirname)
+    roi_img_series_lst = []
+    for (_, brain_img_info), region in product(
+        brain_imgs_df.iterrows(), rois_config.regions
     ):
-        brain_img = brain_img_info[_BASIC_CONFIG.NAMES.PROCESS.ORIGINAL]
-        roi_img = brain_img[
-            roi_info[
-                _BASIC_CONFIG.NAMES.ROI_CONFIG.X,
-                _BASIC_CONFIG.NAMES.ROI_CONFIG.Y,
-                _BASIC_CONFIG.NAMES.ROI_CONFIG.Z,
-            ]
+        original_brain_img = brain_img_info[_FEATURES_CONFIG.IMAGES][
+            _CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL
         ]
-        for feat in [
-            _BASIC_CONFIG.DATASET_FEATURES.REGION,
-            _BASIC_CONFIG.DATASET_FEATURES.STRUCTURE,
-            _BASIC_CONFIG.DATASET_FEATURES.HEMISPHERE,
-        ]:
-            roi_img_dict[feat].append(roi_info[feat])
-        for feat in [
-            data_type_feat,
-            stimulation_feat,
-            dtype_stim_feat,
-            _BASIC_CONFIG.DATASET_FEATURES.SUBJECT,
-        ]:
-            roi_img_dict[feat].append(brain_img_info[feat])
-
-        structure = roi_info[_BASIC_CONFIG.DATASET_FEATURES.STRUCTURE]
-        stimulation = brain_img_info[
-            _BASIC_CONFIG.DATASET_FEATURES.STIMULATION
-        ]
-        roi_img_dict[_BASIC_CONFIG.DATASET_FEATURES.IS_SPECIFIC].append(
-            stimulation
-            == _BASIC_CONFIG.REGION_SPECIFIC_STIMULATIONS[structure]
+        roi_img_series = rois_config.get_original_roi_img_series(
+            original_brain_img=original_brain_img,
+            region=region,
+            stimulation=brain_img_info[_FEATURES_CONFIG.STIMULATION],
+            data_type=brain_img_info[_FEATURES_CONFIG.DATA_TYPE],
         )
-
-        roi_img_dict[_BASIC_CONFIG.NAMES.PROCESS.ORIGINAL].append(roi_img)
-    roi_img_df = pd.DataFrame(roi_img_dict)
+        roi_img_series[_FEATURES_CONFIG.SUBJECT] = brain_img_info[
+            _FEATURES_CONFIG.SUBJECT
+        ]
+        roi_img_series_lst.append(roi_img_series)
+    roi_img_df = pd.DataFrame(roi_img_series_lst)
     roi_img_df = roi_img_df.sort_values(
         by=[
-            _BASIC_CONFIG.DATASET_FEATURES.REGION,
-            _BASIC_CONFIG.DATASET_FEATURES.STIMULATION,
-            _BASIC_CONFIG.DATASET_FEATURES.SUBJECT,
+            _FEATURES_CONFIG.REGION,
+            _FEATURES_CONFIG.STIMULATION,
+            _FEATURES_CONFIG.SUBJECT,
         ],
         ignore_index=True,
     )

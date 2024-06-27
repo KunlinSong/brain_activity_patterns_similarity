@@ -1,7 +1,11 @@
 import numpy as np
 import pandas as pd
 
-from .config import get_basic_config
+from .config import (
+    get_categories_config,
+    get_features_config,
+    get_formats_config,
+)
 
 __all__ = [
     "get_random_img_df",
@@ -21,20 +25,34 @@ def _randomize_img(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
 def get_random_img_df(
     img_df: pd.DataFrame, random_seed: int = 42
 ) -> pd.DataFrame:
-    _BASIC_CONFIG = get_basic_config()
+    _FEATURES_CONFIG = get_features_config()
+    _CATEGORIES_CONFIG = get_categories_config()
+    _FORMATS_CONFIG = get_formats_config()
+    dtype_stim_feat = _FORMATS_CONFIG.format_datatype_stimulation_feature(
+        stimulation_feat=_FEATURES_CONFIG.STIMULATION,
+        data_type_feat=_FEATURES_CONFIG.DATA_TYPE,
+    )
+
     rng = np.random.default_rng(random_seed)
-    data_type_feat = _BASIC_CONFIG.DATASET_FEATURES.DATA_TYPE
-    stimulation_feat = _BASIC_CONFIG.DATASET_FEATURES.STIMULATION
-    dtype_stim_feat = eval(_BASIC_CONFIG.FORMATS.DATATYPE_STIMULATION_FEAT)
-    data_type = _BASIC_CONFIG.NAMES.DATA_TYPE.RANDOM
     random_img_df = img_df.copy()
-    random_img_df[_BASIC_CONFIG.NAMES.PROCESS.ORIGINAL] = random_img_df[
-        _BASIC_CONFIG.NAMES.PROCESS.ORIGINAL
-    ].apply(lambda img: _randomize_img(img, rng))
-    random_img_df[data_type_feat] = _BASIC_CONFIG.NAMES.DATA_TYPE.RANDOM
-    for img_idx, img_row in random_img_df.iterrows():
-        stimulation = img_row[stimulation_feat]
-        random_img_df.at[img_idx, dtype_stim_feat] = eval(
-            _BASIC_CONFIG.FORMATS.DATATYPE_STIMULATION_NAME
+    for img_idx, img_row in img_df.iterrows():
+        random_img_df.at[img_idx, _FEATURES_CONFIG.DATA_TYPE] = (
+            _CATEGORIES_CONFIG.DATA_TYPE.RANDOM
         )
+
+        stimulation = img_row[_FEATURES_CONFIG.STIMULATION]
+        dtype_stim_category = (
+            _FORMATS_CONFIG.format_datatype_stimulation_category(
+                stimulation=stimulation,
+                data_type=_CATEGORIES_CONFIG.DATA_TYPE.RANDOM,
+            )
+        )
+
+        random_img_df.at[img_idx, dtype_stim_feat] = dtype_stim_category
+        imgs = img_row[_FEATURES_CONFIG.IMAGES].copy()
+        original_img = imgs[_CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL]
+        random_img = _randomize_img(original_img, rng)
+        imgs[_CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL] = random_img
+        random_img_df.at[img_idx, _FEATURES_CONFIG.IMAGES] = imgs
+
     return random_img_df

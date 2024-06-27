@@ -42,7 +42,8 @@ def fft(
     )
 
 
-compute_gradient = np.gradient
+def compute_gradient(*args, **kwargs):
+    return np.gradient(*args, **kwargs)
 
 
 def spatial_average(
