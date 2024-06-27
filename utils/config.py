@@ -1,191 +1,305 @@
-import os
-from collections import defaultdict
 from dataclasses import dataclass
-from functools import partial
-from itertools import product
+from pathlib import Path
+from typing import Literal
 
+import numpy as np
 import pandas as pd
 import yaml
 
-_ROOT_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_CONFIG_PATH = os.path.join(_ROOT_PATH, "config")
-
+_root_dirname = Path(__file__).parents[1]
+_config_dirname = _root_dirname.joinpath("config")
+del _root_dirname
 
 __all__ = [
-    "get_basic_config",
-    "get_roi_config_df",
+    "get_categories_config",
+    "get_features_config",
+    "get_formats_config",
+    "get_rois_config",
 ]
 
 
-def _setattr_or_default(obj: object, kwargs: dict, attr: str, cls) -> None:
-    if attr in kwargs.keys():
-        setattr(obj, attr, cls(**kwargs[attr]))
-    else:
-        setattr(obj, attr, cls())
+@dataclass
+class _DataTypeCategories:
+    RANDOM: str
+    REAL: str
 
 
 @dataclass
-class DatasetFeatures:
-    DATA_TYPE: str = "data type"
-    HEMISPHERE: str = "hemisphere"
-    IS_SPECIFIC: str = "is specific"
-    PROCESS_METHOD: str = "process method"
-    REGION: str = "region"
-    SIMILARITY: str = "similarity"
-    SIMILARITY_METHOD: str = "similarity method"
-    STRUCTURE: str = "structure"
-    STIMULATION: str = "stimulation"
-    SUBJECT: str = "subject"
-    SUBJECT_ID: str = "subject ID"
-    SUBSET_TYPE: str = "subset type"
+class _ProcessMethodCategories:
+    ORIGINAL: str
 
 
 @dataclass
-class DataType:
-    REAL: str = "real"
-    RANDOM: str = "random"
+class _SimilarityTypeCategories:
+    SPECIFIC: str
+    NON_SPECIFIC: str
 
 
 @dataclass
-class Process:
-    ORIGINAL: str = "original"
+class _SubsetTypeCategories:
+    TRAIN: str
+    VALIDATION: str
+    TEST: str
 
 
 @dataclass
-class SubsetType:
-    TRAIN: str = "train"
-    VALIDATION: str = "validation"
-    TEST: str = "test"
+class CategoriesConfig:
+    DATA_TYPE: _DataTypeCategories
+    PROCESS_METHOD: _ProcessMethodCategories
+    SIMILARITY_TYPE: _SimilarityTypeCategories
+    SUBSET_TYPE: _SubsetTypeCategories
 
 
 @dataclass
-class ROIConfig:
-    SIDE_LENGTH: str = "side_length"
-    COORDINATES: str = "coordinates"
-    LEFT_HEMISPHERE: str = "L"
-    RIGHT_HEMISPHERE: str = "R"
-    X: str = "x"
-    Y: str = "y"
-    Z: str = "z"
+class FeaturesConfig:
+    DATA_TYPE: str
+    HEMISPHERE: str
+    IS_SPECIFIC: str
+    PROCESS_METHOD: str
+    REGION: str
+    SIMILARITY: str
+    SIMILARITY_METHOD: str
+    STRUCTURE: str
+    STIMULATION: str
+    SUBJECT: str
+    SUBJECT_ID: str
+    SUBSET_TYPE: str
+    IMAGES: str
 
 
 @dataclass
-class SimilarityType:
-    SPECIFIC: str = "specific similarity"
-    NON_SPECIFIC: str = "non-specific similarity"
+class FormatsConfig:
+    _DATATYPE_STIMULATION_FEATURE: str
+    _DATATYPE_STIMULATION_CATEGORY: str
+    _GROUP_BY_PROCESS_TITLE: str
+    _GROUP_BY_REGION_TITLE: str
+    _PROCESS_SIMILARITY_FEATURE: str
+    _REGION_CATEGORY: str
+    _DATATYPE_STIMULATION_SUBJECT_LABEL: str
 
+    def format_datatype_stimulation_feature(
+        self, stimulation_feat: str, data_type_feat: str
+    ) -> str:
+        return eval(self._DATATYPE_STIMULATION_FEATURE)
 
-@dataclass
-class Formats:
-    DATATYPE_STIMULATION_FEAT: 'f"{stimulation_feat} ({data_type_feat})"'
-    DATATYPE_STIMULATION_NAME: 'f"{stimulation} ({data_type})"'
-    PROCESS_SIMILARITY_FEAT: (
-        'f"{similarity_name} ({process_name}, {similarity_type})"'
-    )
-    GROUP_BY_PROCESS_TITLE: 'f"{similarity_name} ({region})"'
-    GROUP_BY_REGION_TITLE: 'f"{similarity_name} ({process_name})"'
-    REGION_NAME: 'f"{structure} {hemisphere}"'
-
-
-@dataclass
-class Names:
-    DATA_TYPE: DataType
-    PROCESS: Process
-    SUBSET_TYPE: SubsetType
-    ROI_CONFIG: ROIConfig
-    SIMILARITY_TYPE: SimilarityType
-
-    def __init__(self, **kwargs) -> None:
-        setattr_from_config = partial(
-            _setattr_or_default, obj=self, config=kwargs
+    @property
+    def datatype_stimulation_feature(self) -> str:
+        _FEATURES_CONFIG = get_features_config()
+        return self.format_datatype_stimulation_feature(
+            stimulation_feat=_FEATURES_CONFIG.STIMULATION,
+            data_type_feat=_FEATURES_CONFIG.DATA_TYPE,
         )
-        setattr_from_config(attr="DATA_TYPE", cls=DataType)
-        setattr_from_config(attr="PROCESS", cls=Process)
-        setattr_from_config(attr="SUBSET_TYPE", cls=SubsetType)
-        setattr_from_config(attr="ROI_CONFIG", cls=ROIConfig)
-        setattr_from_config(attr="SIMILARITY_TYPE", cls=SimilarityType)
+
+    def format_datatype_stimulation_category(
+        self, stimulation: str, data_type: str
+    ) -> str:
+        return eval(self._DATATYPE_STIMULATION_CATEGORY)
+
+    def format_group_by_process_title(
+        self, similarity_name: str, region: str
+    ) -> str:
+        return eval(self._GROUP_BY_PROCESS_TITLE)
+
+    def format_group_by_region_title(
+        self, similarity_name: str, process_name: str
+    ) -> str:
+        return eval(self._GROUP_BY_REGION_TITLE)
+
+    def format_process_similarity_feature(
+        self, similarity_name: str, process_name: str, similarity_type: str
+    ) -> str:
+        return eval(self._PROCESS_SIMILARITY_FEATURE)
+
+    def format_region_category(self, structure: str, hemisphere: str) -> str:
+        return eval(self._REGION_CATEGORY)
+
+    def format_datatype_stimulation_subject_label(
+        self, data_type: str, stimulation: str, subject: str
+    ) -> str:
+        return eval(self._DATATYPE_STIMULATION_SUBJECT_LABEL)
 
 
-@dataclass
-class BasicConfig:
-    REGION_SPECIFIC_STIMULATIONS: dict[str, str]
-    NAMES: Names
-    DATASET_FEATURES: DatasetFeatures
-    FORMATS: Formats
-
-    def __init__(self, **kwargs) -> None:
-        setattr_from_config = partial(
-            _setattr_or_default, obj=self, config=kwargs
-        )
-        setattr_from_config(attr="NAMES", cls=Names)
-        setattr_from_config(attr="DATASET_FEATURES", cls=DatasetFeatures)
-        self.REGION_SPECIFIC_STIMULATIONS = kwargs[
-            "REGION_SPECIFIC_STIMULATIONS"
-        ]
-        setattr_from_config(attr="FORMATS", cls=Formats)
-
-
-def get_basic_config() -> BasicConfig:
-    """Load `basic.yaml` config as `BasicConfig`."""
-    path = os.path.join(
-        _CONFIG_PATH,
-        "basic.yaml",
-    )
+def _get_config_dict(filename: str) -> dict:
+    path = _config_dirname.joinpath(filename)
     with open(path) as f:
         config_dict = yaml.safe_load(f)
-        config = BasicConfig(**config_dict)
-    return config
+    return config_dict
 
 
-def get_roi_config_df() -> pd.DataFrame:
-    """Load `roi.yaml` config as `pd.DataFrame`.
-
-    Returns:
-        Following columns are included: `region`, `structure`, `hemisphere`,
-          `x`, `y`, `z`.  Note that `x`, `y`, `z`, here do not refer to the
-          coordinates, but the range of roi on the axis (in `slice` type).
-    """
-    _BASIC_CONFIG = get_basic_config()
-    rois_df_dict = defaultdict(list)
-    path = os.path.join(
-        _CONFIG_PATH,
-        "roi.yaml",
+def get_categories_config() -> CategoriesConfig:
+    config_dict = _get_config_dict("categories.yaml")
+    data_type_categories = _DataTypeCategories(**config_dict["DATA_TYPE"])
+    process_method_categories = _ProcessMethodCategories(
+        **config_dict["PROCESS_METHOD"]
     )
-    with open(path, "r") as f:
-        roi_config: dict = yaml.safe_load(f)
-    len_side = roi_config[_BASIC_CONFIG.NAMES.ROI_CONFIG.SIDE_LENGTH]
-    side_mid_front = len_side // 2
-    side_mid_back = len_side - side_mid_front
-    get_min = lambda x: x - side_mid_front
-    get_max = lambda x: x + side_mid_back
-    coords: dict = roi_config[_BASIC_CONFIG.NAMES.ROI_CONFIG.COORDINATES]
-    for structure, hemisphere in product(
-        coords.keys(),
-        [
-            _BASIC_CONFIG.NAMES.ROI_CONFIG.LEFT_HEMISPHERE,
-            _BASIC_CONFIG.NAMES.ROI_CONFIG.RIGHT_HEMISPHERE,
+    similarity_type_categories = _SimilarityTypeCategories(
+        **config_dict["SIMILARITY_TYPE"]
+    )
+    subset_type_categories = _SubsetTypeCategories(
+        **config_dict["SUBSET_TYPE"]
+    )
+    return CategoriesConfig(
+        DATA_TYPE=data_type_categories,
+        PROCESS_METHOD=process_method_categories,
+        SIMILARITY_TYPE=similarity_type_categories,
+        SUBSET_TYPE=subset_type_categories,
+    )
+
+
+def get_features_config() -> FeaturesConfig:
+    config_dict = _get_config_dict(filename="features.yaml")
+    return FeaturesConfig(
+        DATA_TYPE=config_dict["DATA_TYPE"],
+        HEMISPHERE=config_dict["HEMISPHERE"],
+        IS_SPECIFIC=config_dict["IS_SPECIFIC"],
+        PROCESS_METHOD=config_dict["PROCESS_METHOD"],
+        REGION=config_dict["REGION"],
+        SIMILARITY=config_dict["SIMILARITY"],
+        SIMILARITY_METHOD=config_dict["SIMILARITY_METHOD"],
+        STRUCTURE=config_dict["STRUCTURE"],
+        STIMULATION=config_dict["STIMULATION"],
+        SUBJECT=config_dict["SUBJECT"],
+        SUBJECT_ID=config_dict["SUBJECT_ID"],
+        SUBSET_TYPE=config_dict["SUBSET_TYPE"],
+        IMAGES=config_dict["IMAGES"],
+    )
+
+
+def get_formats_config() -> FormatsConfig:
+    config_dict = _get_config_dict(filename="formats.yaml")
+    return FormatsConfig(
+        _DATATYPE_STIMULATION_FEATURE=config_dict[
+            "DATATYPE_STIMULATION_FEATURE"
         ],
-    ):
-        region_coord: dict = coords[structure][hemisphere]
-        region_name = eval(_BASIC_CONFIG.FORMATS.REGION_NAME)
-        rois_df_dict[_BASIC_CONFIG.DATASET_FEATURES.REGION].append(region_name)
-        rois_df_dict[_BASIC_CONFIG.DATASET_FEATURES.STRUCTURE].append(
-            structure
-        )
-        rois_df_dict[_BASIC_CONFIG.DATASET_FEATURES.HEMISPHERE].append(
-            hemisphere
-        )
-        for axis in [
-            _BASIC_CONFIG.NAMES.ROI_CONFIG.X,
-            _BASIC_CONFIG.NAMES.ROI_CONFIG.Y,
-            _BASIC_CONFIG.NAMES.ROI_CONFIG.Z,
-        ]:
-            coord_axis = region_coord[axis]
-            coord_min = get_min(coord_axis)
-            coord_max = get_max(coord_axis)
-            rois_df_dict[axis].append(slice(coord_min, coord_max))
-    rois_df = pd.DataFrame(rois_df_dict)
-    rois_df: pd.DataFrame = rois_df.sort_values(
-        by=[_BASIC_CONFIG.DATASET_FEATURES.REGION], ignore_index=True
+        _DATATYPE_STIMULATION_CATEGORY=config_dict[
+            "DATATYPE_STIMULATION_CATEGORY"
+        ],
+        _GROUP_BY_PROCESS_TITLE=config_dict["GROUP_BY_PROCESS_TITLE"],
+        _GROUP_BY_REGION_TITLE=config_dict["GROUP_BY_REGION_TITLE"],
+        _PROCESS_SIMILARITY_FEATURE=config_dict["PROCESS_SIMILARITY_FEATURE"],
+        _REGION_CATEGORY=config_dict["REGION_CATEGORY"],
+        _DATATYPE_STIMULATION_SUBJECT_LABEL=config_dict[
+            "DATATYPE_STIMULATION_SUBJECT_LABEL"
+        ],
     )
-    return rois_df
+
+
+class ROIsConfig:
+    STRUCTURES = ["STG", "FFA"]
+    HEMISPHERES = ["L", "R"]
+    AXIS = ["x", "y", "z"]
+    SPECIFIC_STIM_FEAT = "specific_stimulation"
+
+    def __init__(self) -> None:
+        self._FEATURES_CONFIG = get_features_config()
+        self._FORMATS_CONFIG = get_formats_config()
+        self._CATEGORIES_CONFIG = get_categories_config()
+
+        self.rois_df = self._get_rois_df()
+        self.regions = self.rois_df[self._FEATURES_CONFIG.REGION].unique()
+
+    def get_original_roi_img_series(
+        self,
+        original_brain_img: np.ndarray,
+        region: str,
+        stimulation: str,
+        data_type: str,
+    ) -> pd.Series:
+        roi_series = self.rois_df.loc[region]
+        dtype_stim_feat = (
+            self._FORMATS_CONFIG.format_datatype_stimulation_feature(
+                data_type_feat=self._FEATURES_CONFIG.DATA_TYPE,
+                stimulation_feat=self._FEATURES_CONFIG.STIMULATION,
+            )
+        )
+        dtype_stim_category = (
+            self._FORMATS_CONFIG.format_datatype_stimulation_category(
+                data_type=data_type,
+                stimulation=stimulation,
+            )
+        )
+        original_roi_img = original_brain_img[
+            roi_series[self.AXIS[0]],
+            roi_series[self.AXIS[1]],
+            roi_series[self.AXIS[2]],
+        ]
+        structure = roi_series[self._FEATURES_CONFIG.STRUCTURE]
+        hemisphere = roi_series[self._FEATURES_CONFIG.HEMISPHERE]
+        is_specific = int(
+            (roi_series[self.SPECIFIC_STIM_FEAT] == stimulation)
+            & (data_type == self._CATEGORIES_CONFIG.DATA_TYPE.REAL)
+        )
+        imgs = pd.Series(
+            {self._CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL: original_roi_img}
+        )
+        roi_img_series_dict = {
+            self._FEATURES_CONFIG.REGION: region,
+            self._FEATURES_CONFIG.STRUCTURE: structure,
+            self._FEATURES_CONFIG.HEMISPHERE: hemisphere,
+            self._FEATURES_CONFIG.IS_SPECIFIC: is_specific,
+            self._FEATURES_CONFIG.DATA_TYPE: data_type,
+            self._FEATURES_CONFIG.STIMULATION: stimulation,
+            dtype_stim_feat: dtype_stim_category,
+            self._FEATURES_CONFIG.IMAGES: imgs,
+        }
+        return pd.Series(roi_img_series_dict)
+
+    def _get_rois_df(self) -> pd.DataFrame:
+        rois_config_dict = _get_config_dict("rois.yaml")
+        len_side = rois_config_dict["side_length"]
+        coordinates_config_dict: dict = rois_config_dict["coordinates"]
+        roi_series_lst = []
+        for structure in self.STRUCTURES:
+            structure_config_dict: dict = coordinates_config_dict[structure]
+            specific_stimulation = structure_config_dict[
+                self.SPECIFIC_STIM_FEAT
+            ]
+            for hemisphere in self.HEMISPHERES:
+                center_coords_dict: dict = structure_config_dict[hemisphere]
+                region = self._FORMATS_CONFIG.format_region_category(
+                    structure=structure,
+                    hemisphere=hemisphere,
+                )
+                roi_dict = {
+                    self._FEATURES_CONFIG.REGION: region,
+                    self._FEATURES_CONFIG.STRUCTURE: structure,
+                    self._FEATURES_CONFIG.HEMISPHERE: hemisphere,
+                    self.SPECIFIC_STIM_FEAT: specific_stimulation,
+                }
+
+                for axis in self.AXIS:
+                    axis_center: int = center_coords_dict[axis]
+                    axis_start: int = self._get_end_pos(
+                        center=axis_center, len_side=len_side, end_point="min"
+                    )
+                    axis_end: int = self._get_end_pos(
+                        center=axis_center, len_side=len_side, end_point="max"
+                    )
+                    roi_dict[axis] = slice(axis_start, axis_end)
+                roi_series_lst.append(pd.Series(roi_dict))
+        rois_df = pd.DataFrame(roi_series_lst)
+        rois_df = rois_df.sort_values(
+            by=self._FEATURES_CONFIG.REGION, ignore_index=True
+        )
+        rois_df = rois_df.set_index(self._FEATURES_CONFIG.REGION, drop=False)
+        return rois_df
+
+    @staticmethod
+    def _get_end_pos(
+        center: int, len_side: int, end_point: Literal["min", "max"]
+    ) -> int:
+        match end_point:
+            case "min":
+                len_end = len_side // 2
+                end_pos = center - len_end
+                return end_pos if end_pos > 0 else 0
+            case "max":
+                len_end = len_side - len_side // 2
+                end_pos = center + len_end
+                return end_pos
+            case _:
+                raise ValueError(f"Invalid end_point: {end_point}.")
+
+
+def get_rois_config() -> ROIsConfig:
+    return ROIsConfig()
