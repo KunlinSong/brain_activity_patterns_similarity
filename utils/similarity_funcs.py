@@ -7,6 +7,7 @@ brain activity patterns by initially flattening them into 1D arrays.
 """
 
 from functools import wraps
+from tkinter import W
 from typing import Callable
 
 import numpy as np

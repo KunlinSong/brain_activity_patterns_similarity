@@ -1,58 +1,67 @@
+"""The module for randomly shuffling images in the dataset."""
+
+from typing import Literal
+
 import numpy as np
 import pandas as pd
 
+from utils.utils import get_process_method
+
 from .config import (
-    get_categories_config,
-    get_features_config,
-    get_formats_config,
+    FIELDS_CONFIG,
+    LABELS_CONFIG,
+    ROIImgFieldsConfig,
+    WholeBrainImgFieldsConfig,
 )
+from .utils import get_fields_config
 
 __all__ = [
-    "get_random_img_df",
+    "shuffle_all_imgs",
 ]
 
 
-def _randomize_img(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+def _shuffle_img(img: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     img = img.copy()
     non_nan_indices = np.nonzero(~np.isnan(img))
-    random_indices = np.stack(non_nan_indices, axis=0)
-    rng.shuffle(random_indices, axis=-1)
-    random_indices = tuple(random_indices)
-    img[non_nan_indices] = img[random_indices]
+    shuffled_indices = np.stack(non_nan_indices, axis=0)
+    rng.shuffle(shuffled_indices, axis=-1)
+    shuffled_indices = tuple(shuffled_indices)
+    img[non_nan_indices] = img[shuffled_indices]
     return img
 
 
-def get_random_img_df(
-    img_df: pd.DataFrame, random_seed: int = 42
+def _shuffle_row_img(
+    row: pd.Series,
+    rng: np.random.Generator,
+    fields_config: WholeBrainImgFieldsConfig | ROIImgFieldsConfig,
+    process_method: str | None = None,
+) -> pd.Series:
+    row = row.copy()
+    process_method = get_process_method(process_method=process_method)
+    imgs: pd.Series = row[fields_config.images].copy()
+    img: np.ndarray = imgs[process_method]
+    shuffled_img = _shuffle_img(img, rng)
+    imgs[process_method] = shuffled_img
+    row[fields_config.images] = imgs
+    row[fields_config.data_type] = LABELS_CONFIG.data_type.shuffled
+    return row
+
+
+def shuffle_all_imgs(
+    img_df: pd.DataFrame,
+    process_method: str | None = None,
+    random_seed: int = 42,
+    img_type: Literal["whole brain", "ROI"] = "ROI",
 ) -> pd.DataFrame:
-    _FEATURES_CONFIG = get_features_config()
-    _CATEGORIES_CONFIG = get_categories_config()
-    _FORMATS_CONFIG = get_formats_config()
-    dtype_stim_feat = _FORMATS_CONFIG.format_datatype_stimulation_feature(
-        stimulation_feat=_FEATURES_CONFIG.STIMULATION,
-        data_type_feat=_FEATURES_CONFIG.DATA_TYPE,
-    )
-
     rng = np.random.default_rng(random_seed)
-    random_img_df = img_df.copy()
-    for img_idx, img_row in img_df.iterrows():
-        random_img_df.at[img_idx, _FEATURES_CONFIG.DATA_TYPE] = (
-            _CATEGORIES_CONFIG.DATA_TYPE.RANDOM
+    shuffled_df = img_df.copy()
+    fields_config = get_fields_config(img_type)
+    for idx, row in img_df.iterrows():
+        shuffled_row = _shuffle_row_img(
+            row=row,
+            rng=rng,
+            fields_config=fields_config,
+            process_method=process_method,
         )
-
-        stimulation = img_row[_FEATURES_CONFIG.STIMULATION]
-        dtype_stim_category = (
-            _FORMATS_CONFIG.format_datatype_stimulation_category(
-                stimulation=stimulation,
-                data_type=_CATEGORIES_CONFIG.DATA_TYPE.RANDOM,
-            )
-        )
-
-        random_img_df.at[img_idx, dtype_stim_feat] = dtype_stim_category
-        imgs = img_row[_FEATURES_CONFIG.IMAGES].copy()
-        original_img = imgs[_CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL]
-        random_img = _randomize_img(original_img, rng)
-        imgs[_CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL] = random_img
-        random_img_df.at[img_idx, _FEATURES_CONFIG.IMAGES] = imgs
-
-    return random_img_df
+        shuffled_df.loc[idx, :] = shuffled_row
+    return shuffled_df

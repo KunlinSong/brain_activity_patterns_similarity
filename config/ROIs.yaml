@@ -9,7 +9,7 @@ coordinates:
       x: 10
       y: 35
       z: 19
-    specific_stimulation: "visual stimulation"
+    specific_stimulation: "auditory stimulation"
   FFA:
     L:
       x: 37
@@ -19,4 +19,4 @@ coordinates:
       x: 16
       y: 13
       z: 15
-    specific_stimulation: "auditory stimulation"
+    specific_stimulation: "visual stimulation"

@@ -1,14 +1,17 @@
 from collections import defaultdict
 from itertools import combinations, product
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Literal
 
 import numpy as np
 import pandas as pd
 
-from .config import (
-    get_categories_config,
-    get_features_config,
-    get_formats_config,
+from .config import FIELDS_CONFIG, FORMATS_CONFIG, LABELS_CONFIG, ROIS_CONFIG
+from .img_loader import get_img
+from .utils import (
+    filter_similarity_dataset,
+    get_fields_config,
+    get_process_method,
+    get_similarity_dataset,
 )
 
 __all__ = [
@@ -19,146 +22,229 @@ __all__ = [
 ]
 
 
-def get_similarity_df(
-    img_row: pd.Series,
+def compute_similarity_dataset(
+    idx: int,
     img_df: pd.DataFrame,
-    process_name: str | None,
-    similarity_name: str,
+    process_method: str | None,
+    similarity_method: str,
     similarity_func: Callable,
+    img_type: Literal["whole brain", "ROI"] = "ROI",
 ) -> pd.DataFrame:
-    _FORMATS_CONFIG = get_formats_config()
-    _CATEGORIES_CONFIG = get_categories_config()
-    _FEATURES_CONFIG = get_features_config()
-    if process_name is None:
-        process_name = _CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL
-    img_row = img_row.copy()
-    img_df = img_df.copy()
-    processed_img: np.ndarray = img_row[_FEATURES_CONFIG.IMAGES][
-        process_name
-    ].copy()
-    img_df = img_df.drop(_FEATURES_CONFIG.SIMILARITY, axis=1)
-    if _FEATURES_CONFIG.REGION in img_row.keys():
-        img_df = img_df[
-            img_df[_FEATURES_CONFIG.REGION] == img_row[_FEATURES_CONFIG.REGION]
-        ].copy()
-    similarity_df = img_df.copy()
-    dtype_stim_feat = _FORMATS_CONFIG.format_datatype_stimulation_feature(
-        stimulation_feat=_FEATURES_CONFIG.STIMULATION,
-        data_type_feat=_FEATURES_CONFIG.DATA_TYPE,
+    fields_config = get_fields_config(img_type)
+    process_method = (
+        LABELS_CONFIG.process_method.original
+        if process_method is None
+        else process_method
     )
-    similarity_df = similarity_df[
-        [
-            _FEATURES_CONFIG.DATA_TYPE,
-            _FEATURES_CONFIG.STIMULATION,
-            dtype_stim_feat,
-            _FEATURES_CONFIG.SUBJECT,
-            _FEATURES_CONFIG.IS_SPECIFIC,
-        ]
-    ].copy()
-    similarity_df.loc[:, _FEATURES_CONFIG.PROCESS_METHOD] = process_name
-    similarity_df.loc[:, _FEATURES_CONFIG.SIMILARITY_METHOD] = similarity_name
-    for img_idx_to, img_row_to in img_df.iterrows():
-        similarity_df.at[img_idx_to, _FEATURES_CONFIG.SUBJECT_ID] = img_idx_to
-        processed_img_to = img_row_to[_FEATURES_CONFIG.IMAGES][process_name]
-        similarity = similarity_func(processed_img, processed_img_to)
-        similarity_df.at[img_idx_to, _FEATURES_CONFIG.SIMILARITY] = similarity
-    return similarity_df
-
-
-def get_similarity_mat(
-    img_df: pd.DataFrame,
-    region: str,
-    process_name: str | None,
-    similarity_name: str,
-) -> pd.DataFrame:
-    _FORMATS_CONFIG = get_formats_config()
-    _CATEGORIES_CONFIG = get_categories_config()
-    _FEATURES_CONFIG = get_features_config()
-    img_df = img_df.copy()
-    if process_name is None:
-        process_name = _CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL
-    if _FEATURES_CONFIG.REGION in img_df.columns:
-        img_df = img_df[img_df[_FEATURES_CONFIG.REGION] == region].copy()
-    similarity_mat = np.empty((len(img_df), (len(img_df))))
-    label_lst = []
-    for mat_idx_0, (_, img_row) in enumerate(img_df.iterrows()):
-        row_similarity_df: pd.DataFrame = img_row[_FEATURES_CONFIG.SIMILARITY]
-        row_similarity_df = row_similarity_df[
-            (
-                row_similarity_df[_FEATURES_CONFIG.SIMILARITY_METHOD]
-                == similarity_name
-            )
-            & (
-                row_similarity_df[_FEATURES_CONFIG.PROCESS_METHOD]
-                == process_name
-            )
-        ].copy()
-        for mat_idx_1, img_idx in enumerate(img_df.index):
-            id_series = row_similarity_df[
-                row_similarity_df[_FEATURES_CONFIG.SUBJECT_ID] == img_idx
-            ].iloc[0]
-            value = id_series[_FEATURES_CONFIG.SIMILARITY]
-            similarity_mat[mat_idx_0, mat_idx_1] = value
-        label_lst.append(
-            _FORMATS_CONFIG.format_datatype_stimulation_subject_label(
-                data_type=img_row[_FEATURES_CONFIG.DATA_TYPE],
-                stimulation=img_row[_FEATURES_CONFIG.STIMULATION],
-                subject=img_row[_FEATURES_CONFIG.SUBJECT],
-            )
+    img_1 = get_img(
+        idx=idx,
+        img_df=img_df,
+        process_method=process_method,
+        fields_config=fields_config,
+    )
+    similarities = []
+    for idx_2 in img_df.index:
+        img_2 = get_img(
+            idx=idx_2,
+            img_df=img_df,
+            process_method=process_method,
+            fields_config=fields_config,
         )
-    return pd.DataFrame(similarity_mat, columns=label_lst, index=label_lst)
-
-
-def get_same_stimulation_similarity_df(
-    img_df: pd.DataFrame, similarity_name: str, include_self: bool = False
-) -> pd.DataFrame:
-    img_df = img_df.copy()
-    _FEATURES_CONFIG = get_features_config()
-    _FORMATS_CONFIG = get_formats_config()
-    same_stim_similarity_series_lst = []
-    for img_idx, img_row in img_df.iterrows():
-        data_type = img_row[_FEATURES_CONFIG.DATA_TYPE]
-        stimulation = img_row[_FEATURES_CONFIG.STIMULATION]
-        dtype_stim = img_row[_FORMATS_CONFIG.datatype_stimulation_feature]
-        structure = img_row[_FEATURES_CONFIG.STRUCTURE]
-        hemisphere = img_row[_FEATURES_CONFIG.HEMISPHERE]
-        region = img_row[_FEATURES_CONFIG.REGION]
-        similarity_df = img_row[_FEATURES_CONFIG.SIMILARITY]
-        similarity_df: pd.DataFrame = similarity_df[
-            (
-                similarity_df[_FORMATS_CONFIG.datatype_stimulation_feature]
-                == dtype_stim
-            )
-            & (
-                similarity_df[_FEATURES_CONFIG.SIMILARITY_METHOD]
-                == similarity_name
-            )
-        ].copy()
-        if not include_self:
-            similarity_df = similarity_df[
-                similarity_df[_FEATURES_CONFIG.SUBJECT_ID] != img_idx
-            ].copy()
-        for _, similarity_row in similarity_df.iterrows():
-            process_method = similarity_row[_FEATURES_CONFIG.PROCESS_METHOD]
-            similarity_method = similarity_row[
-                _FEATURES_CONFIG.SIMILARITY_METHOD
-            ]
-            similarity = similarity_row[_FEATURES_CONFIG.SIMILARITY]
-
-            same_stim_similarity_dict = {
-                _FEATURES_CONFIG.DATA_TYPE: data_type,
-                _FEATURES_CONFIG.STIMULATION: stimulation,
-                _FORMATS_CONFIG.datatype_stimulation_feature: dtype_stim,
-                _FEATURES_CONFIG.PROCESS_METHOD: process_method,
-                _FEATURES_CONFIG.SIMILARITY_METHOD: similarity_method,
-                _FEATURES_CONFIG.STRUCTURE: structure,
-                _FEATURES_CONFIG.HEMISPHERE: hemisphere,
-                _FEATURES_CONFIG.REGION: region,
-                _FEATURES_CONFIG.SIMILARITY: similarity,
+        similarity_series = pd.Series(
+            {
+                FIELDS_CONFIG.similarity_dataset.subject_id: idx_2,
+                FIELDS_CONFIG.similarity_dataset.process_method: process_method,
+                FIELDS_CONFIG.similarity_dataset.similarity_method: similarity_method,
+                FIELDS_CONFIG.similarity_dataset.similarity: similarity_func(
+                    img_1, img_2
+                ),
             }
-            same_stim_similarity_series = pd.Series(same_stim_similarity_dict)
-            same_stim_similarity_series_lst.append(same_stim_similarity_series)
-    return pd.DataFrame(same_stim_similarity_series_lst)
+        )
+        similarities.append(similarity_series)
+    return pd.DataFrame(similarities)
+
+
+# def get_similarity_df(
+#     img_row: pd.Series,
+#     img_df: pd.DataFrame,
+#     process_name: str | None,
+#     similarity_name: str,
+#     similarity_func: Callable,
+# ) -> pd.DataFrame:
+#     _FORMATS_CONFIG = get_formats_config()
+#     _CATEGORIES_CONFIG = get_categories_config()
+#     _FEATURES_CONFIG = get_features_config()
+#     if process_name is None:
+#         process_name = _CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL
+#     img_row = img_row.copy()
+#     img_df = img_df.copy()
+#     processed_img: np.ndarray = img_row[_FEATURES_CONFIG.IMAGES][
+#         process_name
+#     ].copy()
+#     img_df = img_df.drop(_FEATURES_CONFIG.SIMILARITY, axis=1)
+#     if _FEATURES_CONFIG.REGION in img_row.keys():
+#         img_df = img_df[
+#             img_df[_FEATURES_CONFIG.REGION] == img_row[_FEATURES_CONFIG.REGION]
+#         ].copy()
+#     similarity_df = img_df.copy()
+#     dtype_stim_feat = _FORMATS_CONFIG.format_datatype_stimulation_feature(
+#         stimulation_feat=_FEATURES_CONFIG.STIMULATION,
+#         data_type_feat=_FEATURES_CONFIG.DATA_TYPE,
+#     )
+#     similarity_df = similarity_df[
+#         [
+#             _FEATURES_CONFIG.DATA_TYPE,
+#             _FEATURES_CONFIG.STIMULATION,
+#             dtype_stim_feat,
+#             _FEATURES_CONFIG.SUBJECT,
+#             _FEATURES_CONFIG.IS_SPECIFIC,
+#         ]
+#     ].copy()
+#     similarity_df.loc[:, _FEATURES_CONFIG.PROCESS_METHOD] = process_name
+#     similarity_df.loc[:, _FEATURES_CONFIG.SIMILARITY_METHOD] = similarity_name
+#     for img_idx_to, img_row_to in img_df.iterrows():
+#         similarity_df.at[img_idx_to, _FEATURES_CONFIG.SUBJECT_ID] = img_idx_to
+#         processed_img_to = img_row_to[_FEATURES_CONFIG.IMAGES][process_name]
+#         similarity = similarity_func(processed_img, processed_img_to)
+#         similarity_df.at[img_idx_to, _FEATURES_CONFIG.SIMILARITY] = similarity
+#     return similarity_df
+
+
+def get_similarity_matrix(
+    img_df: pd.DataFrame,
+    process_method: str | None,
+    similarity_method: str,
+    img_type: Literal["whole brain", "ROI"] = "ROI",
+    region: str | None = None,
+):
+    img_df = img_df.copy()
+    process_method = get_process_method(process_method)
+    fields_config = get_fields_config(img_type)
+    match img_type:
+        case "whole brain":
+            if region is not None:
+                print(f"Warning: region {region} not used.")
+        case "ROI":
+            if region is None:
+                raise ValueError("region must be specified for ROI images.")
+            img_df = img_df[img_df[fields_config.region] == region].copy()
+    similarity_matrix = np.empty((len(img_df), (len(img_df))))
+    for mat_idx_1, idx_1 in enumerate(img_df.index):
+        similarity_dataset = get_similarity_dataset(
+            idx=idx_1,
+            img_df=img_df,
+            img_type=img_type,
+        )
+        similarity_dataset = filter_similarity_dataset(
+            similarity_dataset=similarity_dataset,
+            process_method=process_method,
+            similarity_method=similarity_method,
+        )
+        for mat_idx_2, idx_2 in enumerate(img_df.index):
+            row: pd.Series = similarity_dataset.loc[
+                similarity_dataset[FIELDS_CONFIG.similarity_dataset.subject_id]
+                == idx_2
+            ][0]
+            similarity_matrix[mat_idx_1, mat_idx_2] = row[
+                FIELDS_CONFIG.similarity_dataset.similarity
+            ]
+    return similarity_matrix.copy()
+
+
+# def get_similarity_mat(
+#     img_df: pd.DataFrame,
+#     region: str,
+#     process_name: str | None,
+#     similarity_name: str,
+# ) -> pd.DataFrame:
+#     _FORMATS_CONFIG = get_formats_config()
+#     _CATEGORIES_CONFIG = get_categories_config()
+#     _FEATURES_CONFIG = get_features_config()
+#     img_df = img_df.copy()
+#     if process_name is None:
+#         process_name = _CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL
+#     if _FEATURES_CONFIG.REGION in img_df.columns:
+#         img_df = img_df[img_df[_FEATURES_CONFIG.REGION] == region].copy()
+#     similarity_mat = np.empty((len(img_df), (len(img_df))))
+#     label_lst = []
+#     for mat_idx_0, (_, img_row) in enumerate(img_df.iterrows()):
+#         row_similarity_df: pd.DataFrame = img_row[_FEATURES_CONFIG.SIMILARITY]
+#         row_similarity_df = row_similarity_df[
+#             (
+#                 row_similarity_df[_FEATURES_CONFIG.SIMILARITY_METHOD]
+#                 == similarity_name
+#             )
+#             & (
+#                 row_similarity_df[_FEATURES_CONFIG.PROCESS_METHOD]
+#                 == process_name
+#             )
+#         ].copy()
+#         for mat_idx_1, img_idx in enumerate(img_df.index):
+#             id_series = row_similarity_df[
+#                 row_similarity_df[_FEATURES_CONFIG.SUBJECT_ID] == img_idx
+#             ].iloc[0]
+#             value = id_series[_FEATURES_CONFIG.SIMILARITY]
+#             similarity_mat[mat_idx_0, mat_idx_1] = value
+#         label_lst.append(
+#             _FORMATS_CONFIG.format_datatype_stimulation_subject_label(
+#                 data_type=img_row[_FEATURES_CONFIG.DATA_TYPE],
+#                 stimulation=img_row[_FEATURES_CONFIG.STIMULATION],
+#                 subject=img_row[_FEATURES_CONFIG.SUBJECT],
+#             )
+#         )
+#     return pd.DataFrame(similarity_mat, columns=label_lst, index=label_lst)
+
+
+# def get_same_stimulation_similarity_df(
+#     img_df: pd.DataFrame, similarity_name: str, include_self: bool = False
+# ) -> pd.DataFrame:
+#     img_df = img_df.copy()
+#     _FEATURES_CONFIG = get_features_config()
+#     _FORMATS_CONFIG = get_formats_config()
+#     same_stim_similarity_series_lst = []
+#     for img_idx, img_row in img_df.iterrows():
+#         data_type = img_row[_FEATURES_CONFIG.DATA_TYPE]
+#         stimulation = img_row[_FEATURES_CONFIG.STIMULATION]
+#         dtype_stim = img_row[_FORMATS_CONFIG.datatype_stimulation_feature]
+#         structure = img_row[_FEATURES_CONFIG.STRUCTURE]
+#         hemisphere = img_row[_FEATURES_CONFIG.HEMISPHERE]
+#         region = img_row[_FEATURES_CONFIG.REGION]
+#         similarity_df = img_row[_FEATURES_CONFIG.SIMILARITY]
+#         similarity_df: pd.DataFrame = similarity_df[
+#             (
+#                 similarity_df[_FORMATS_CONFIG.datatype_stimulation_feature]
+#                 == dtype_stim
+#             )
+#             & (
+#                 similarity_df[_FEATURES_CONFIG.SIMILARITY_METHOD]
+#                 == similarity_name
+#             )
+#         ].copy()
+#         if not include_self:
+#             similarity_df = similarity_df[
+#                 similarity_df[_FEATURES_CONFIG.SUBJECT_ID] != img_idx
+#             ].copy()
+#         for _, similarity_row in similarity_df.iterrows():
+#             process_method = similarity_row[_FEATURES_CONFIG.PROCESS_METHOD]
+#             similarity_method = similarity_row[
+#                 _FEATURES_CONFIG.SIMILARITY_METHOD
+#             ]
+#             similarity = similarity_row[_FEATURES_CONFIG.SIMILARITY]
+
+#             same_stim_similarity_dict = {
+#                 _FEATURES_CONFIG.DATA_TYPE: data_type,
+#                 _FEATURES_CONFIG.STIMULATION: stimulation,
+#                 _FORMATS_CONFIG.datatype_stimulation_feature: dtype_stim,
+#                 _FEATURES_CONFIG.PROCESS_METHOD: process_method,
+#                 _FEATURES_CONFIG.SIMILARITY_METHOD: similarity_method,
+#                 _FEATURES_CONFIG.STRUCTURE: structure,
+#                 _FEATURES_CONFIG.HEMISPHERE: hemisphere,
+#                 _FEATURES_CONFIG.REGION: region,
+#                 _FEATURES_CONFIG.SIMILARITY: similarity,
+#             }
+#             same_stim_similarity_series = pd.Series(same_stim_similarity_dict)
+#             same_stim_similarity_series_lst.append(same_stim_similarity_series)
+#     return pd.DataFrame(same_stim_similarity_series_lst)
 
 
 def _get_subject_ids_combinations(
@@ -278,7 +364,7 @@ def _get_row_similarity_type_similarity_df(
     return avg_similarity_df
 
 
-def _get_row_avg_similarity(
+def _get_row_both_avg_similarity(
     img_idx: int,
     img_row: pd.Series,
     similarity_names: list[str],
@@ -328,12 +414,55 @@ def _get_row_avg_similarity(
     return avg_similarity_df
 
 
+def _get_row_avg_similarity(
+    img_idx: int,
+    img_row: pd.Series,
+    similarity_names: list[str],
+    process_names: list[str | None],
+    similarity_type: Literal["specific", "non-specific", "both"],
+    n_subjects: int = 0,
+    include_self: bool = False,
+) -> pd.DataFrame:
+    _CATEGORIES_CONFIG = get_categories_config()
+    _FEATURES_CONFIG = get_features_config()
+    match similarity_type:
+        case "specific":
+            similarity_type = _CATEGORIES_CONFIG.SIMILARITY_TYPE.SPECIFIC
+        case "non-specific":
+            similarity_type = _CATEGORIES_CONFIG.SIMILARITY_TYPE.NON_SPECIFIC
+        case "both":
+            return _get_row_both_avg_similarity(
+                img_idx=img_idx,
+                img_row=img_row,
+                similarity_names=similarity_names,
+                process_names=process_names,
+                n_subjects=n_subjects,
+                include_self=include_self,
+            )
+        case _:
+            raise ValueError(f"Invalid similarity type: {similarity_type}")
+    avg_similarity_df = _get_row_similarity_type_similarity_df(
+        img_idx=img_idx,
+        img_row=img_row,
+        similarity_names=similarity_names,
+        process_names=process_names,
+        similarity_type=similarity_type,
+        n_subjects=n_subjects,
+        include_self=include_self,
+    )
+    avg_similarity_df.loc[:, _FEATURES_CONFIG.IS_SPECIFIC] = img_row[
+        _FEATURES_CONFIG.IS_SPECIFIC
+    ]
+    return avg_similarity_df
+
+
 def get_avg_similarity_df(
     img_df: pd.DataFrame,
     similarity_process_pairs: list[tuple[str, str | None]],
     only_real: bool = True,
     n_subjects: int = 0,
     include_self: bool = False,
+    similairty_type: Literal["specific", "non-specific", "both"] = "specific",
 ) -> pd.DataFrame:
     _FEATURES_CONFIG = get_features_config()
     _CATEGORIES_CONFIG = get_categories_config()
@@ -351,6 +480,7 @@ def get_avg_similarity_df(
                 img_row=img_row,
                 similarity_names=list(similarity_names),
                 process_names=list(process_names),
+                similarity_type=similairty_type,
                 n_subjects=n_subjects,
                 include_self=include_self,
             )

@@ -87,3 +87,8 @@ def spatial_average(
     processed_data[mask] = np.nan
 
     return processed_data
+
+
+def spatial_difference(data: np.ndarray) -> np.ndarray:
+    data = data.flatten().copy()
+    return np.array([np.full_like(data, num) - data for num in data])

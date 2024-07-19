@@ -1,0 +1,16 @@
+data_type:
+  shuffled: "shuffled"
+  real: "real"
+
+process_method:
+  original: "original"
+
+subset_type:
+  train: "train"
+  validation: "validation"
+  test: "test"
+
+specificity_type:
+  specific: "specific"
+  non_specific: "non-specific"
+

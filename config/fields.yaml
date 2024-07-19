@@ -1,0 +1,29 @@
+whole_brain_img:
+  data_type: "data type"
+  stimulation: "stimulation"
+  subject: "subject"
+  images: "images"
+  as_standard_pattern: "as standard pattern"
+  similarity: "similarity"
+
+roi_img:
+  data_type: "data type"
+  stimulation: "stimulation"
+  subject: "subject"
+  images: "images"
+  region: "region"
+  structure: "structure"
+  hemisphere: "hemisphere"
+  specificity_type: "specificity type"
+  as_standard_pattern: "as standard pattern"
+  similarity: "similarity"
+
+similarity_dataset:
+  subject_id: "subject ID"
+  process_method: "process method"
+  similarity_method: "similarity method"
+  similarity: "similarity"
+
+avg_similarity_dataset:
+  specificity_type: "specificity type"
+  subset_type: "subset type"

@@ -1,73 +1,77 @@
-from typing import Callable
+from typing import Callable, Literal
 
 import pandas as pd
 
-from .config import get_categories_config, get_features_config
-from .similarity_dataset import get_similarity_df
+from .config import FIELDS_CONFIG, FORMATS_CONFIG, LABELS_CONFIG, ROIS_CONFIG
+from .img_loader import get_img
+from .similarity_dataset import compute_similarity_dataset
+from .utils import get_fields_config
 
 __all__ = [
-    "concat_img_dfs",
-    "process_original",
+    "concat_dfs",
+    "process_original_imgs",
     "add_similarity",
 ]
 
 
-def concat_img_dfs(img_dfs: list[pd.DataFrame]) -> pd.DataFrame:
-    _FEATURES_CONFIG = get_features_config()
-    img_df = pd.concat(img_dfs, ignore_index=True).copy()
-    img_df = img_df.sort_values(
-        by=[
-            _FEATURES_CONFIG.DATA_TYPE,
-            _FEATURES_CONFIG.STIMULATION,
-            _FEATURES_CONFIG.SUBJECT,
-        ],
-        ignore_index=True,
-    )
-    return img_df
+def concat_dfs(dfs: list[pd.DataFrame]) -> pd.DataFrame:
+    return pd.concat(dfs, ignore_index=True).copy()
 
 
-def process_original(
-    img_df: pd.DataFrame, process_name: str, process_func: Callable
+def process_original_imgs(
+    img_df: pd.DataFrame,
+    process_method: str,
+    process_func: Callable,
+    img_type: Literal["whole brain", "ROI"] = "ROI",
 ) -> pd.DataFrame:
-    _FEATURES_CONFIG = get_features_config()
-    _CATEGORIES_CONFIG = get_categories_config()
+    fields_config = get_fields_config(img_type)
     img_df = img_df.copy()
-    for img_idx, img_row in img_df.iterrows():
-        imgs = img_row[_FEATURES_CONFIG.IMAGES].copy()
-        original_img = imgs[_CATEGORIES_CONFIG.PROCESS_METHOD.ORIGINAL]
+    for idx in img_df.index:
+        original_img = get_img(
+            idx=idx,
+            img_df=img_df,
+            process_method=process_method,
+            fields_config=fields_config,
+        )
         process_img = process_func(original_img)
-        imgs[process_name] = process_img
-        img_df.at[img_idx, _FEATURES_CONFIG.IMAGES] = imgs
+        imgs: pd.Series = img_df.at[idx, fields_config.images].copy()
+        imgs[process_method] = process_img
+        img_df.at[idx, fields_config.images] = imgs
     return img_df
 
 
 def add_similarity(
     img_df: pd.DataFrame,
-    process_name: str | None,
-    similarity_name: str,
+    process_method: str | None,
+    similarity_method: str,
     similarity_func: Callable,
+    img_type: Literal["whole brain", "ROI"] = "ROI",
 ) -> pd.DataFrame:
-    _FEATURES_CONFIG = get_features_config()
+    fields_config = get_fields_config(img_type)
     img_df = img_df.copy()
-    if _FEATURES_CONFIG.SIMILARITY not in img_df.columns:
-        img_df[_FEATURES_CONFIG.SIMILARITY] = None
-    for img_idx, img_row in img_df.iterrows():
-        similarity_df: pd.DataFrame | None = img_row[
-            _FEATURES_CONFIG.SIMILARITY
+    for idx in img_df.index:
+        similarity_dataset: pd.DataFrame | None = img_df.at[
+            idx, fields_config.similarity
         ]
-        similarity_df_add = get_similarity_df(
-            img_row=img_row,
+        similarity_dataset_add = compute_similarity_dataset(
+            idx=idx,
             img_df=img_df,
-            process_name=process_name,
-            similarity_name=similarity_name,
+            process_method=process_method,
+            similarity_method=similarity_method,
             similarity_func=similarity_func,
+            img_type=img_type,
         )
-        similarity_df = pd.concat(
-            [
-                similarity_df,
-                similarity_df_add,
-            ],
-            ignore_index=True,
+        similarity_dataset = concat_dfs(
+            [similarity_dataset, similarity_dataset_add]
         )
-        img_df.at[img_idx, _FEATURES_CONFIG.SIMILARITY] = similarity_df
+        img_df.at[idx, fields_config.similarity] = similarity_dataset
     return img_df
+
+
+# TODO
+def assign_roi_pattern_labels(
+    img_df: pd.DataFrame,
+    n_patterns: int,
+    random_seed: int = 42,
+) -> pd.DataFrame:
+    img_df = img_df.copy()
